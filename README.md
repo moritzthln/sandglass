@@ -264,6 +264,4 @@ You may use, study, modify and share it for any **noncommercial** purpose — pe
 research, education, charities and public institutions included. Selling it, bundling it into a
 paid product or offering it as a commercial service is not permitted.
 
-Versions up to and including 1.0.0 were released under the MIT License, and those copies keep it.
-
 © 2026 Moritz Thelen

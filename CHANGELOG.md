@@ -7,12 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-01
+
 ### Changed
 
-- Licence changed from MIT to the PolyForm Noncommercial License 1.0.0. Releases up to and
-  including 1.0.0 remain available under MIT.
+- Licensed under the PolyForm Noncommercial License 1.0.0.
 
-## [1.0.0] - 2026-10-01
+## 1.0.0 - 2026-10-01
 
 First public release.
 
@@ -38,5 +39,5 @@ First public release.
 - Stats page from a local event log.
 - All data on-device in `~/Library/Application Support/Sandglass`.
 
-[Unreleased]: https://github.com/moritzthln/sandglass/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/moritzthln/sandglass/releases/tag/v1.0.0
+[Unreleased]: https://github.com/moritzthln/sandglass/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/moritzthln/sandglass/releases/tag/v1.0.1
