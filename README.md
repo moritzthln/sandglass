@@ -10,7 +10,7 @@
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black)
 ![Apple Silicon & Intel](https://img.shields.io/badge/Apple%20Silicon%20%26%20Intel-universal-black)
 ![Swift 5.10](https://img.shields.io/badge/Swift-5.10-F05138)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-blue)](LICENSE)
 
 <img alt="The Sandglass window in dark mode: four groups in the sidebar, the Video group open with its three websites, two strict time windows drawn across the week, and its pause and budget settings." src="assets/hero.png" width="880">
 
@@ -45,7 +45,7 @@ the app.
 |  | **Sandglass** | SelfControl | Cold Turkey | Freedom |
 |---|:---:|:---:|:---:|:---:|
 | Price | **Free** | Free | Free tier, Pro $45 once | $39.99 / year |
-| Open source | ✅ | ✅ | ❌ | ❌ |
+| Source code public | ✅ | ✅ | ❌ | ❌ |
 | Blocks apps, not just websites | ✅ | ❌ | ✅ | ✅ |
 | No account | ✅ | ✅ | ✅ | ❌ |
 | No admin password, no root helper | ✅ | ❌ | ❌ | ❌ |
@@ -259,4 +259,11 @@ Sandglass follows [Semantic Versioning](https://semver.org). Changes are listed 
 
 ## License
 
-[MIT](LICENSE) © Moritz Thelen
+Sandglass is **source available** under the [PolyForm Noncommercial License 1.0.0](LICENSE).
+You may use, study, modify and share it for any **noncommercial** purpose — personal use,
+research, education, charities and public institutions included. Selling it, bundling it into a
+paid product or offering it as a commercial service is not permitted.
+
+Versions up to and including 1.0.0 were released under the MIT License, and those copies keep it.
+
+© 2026 Moritz Thelen

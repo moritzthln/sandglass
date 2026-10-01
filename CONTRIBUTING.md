@@ -67,3 +67,9 @@ that can be decided without AppKit is moved into the libraries so the suite can 
 Fill in the template: what changed and why, how you tested it, and screenshots for anything
 visible. CI builds the package, runs the suite and builds the universal app on every pull
 request; it has to be green before review.
+
+## Licensing of contributions
+
+By submitting a pull request you agree that your contribution is licensed under the project's
+[PolyForm Noncommercial License 1.0.0](LICENSE), and that the maintainer may also license it under
+other terms in the future.
