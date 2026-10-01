@@ -7,8 +7,7 @@
 # which a plain `zip -r` does not guarantee.
 #
 #   usage: mac/scripts/release.sh
-#   output: mac/build/Sandglass-<version>.zip, and its SHA-256 on stdout; the Homebrew cask in
-#           packaging/homebrew/sandglass.rb is rewritten to that version and checksum
+#   output: mac/build/Sandglass-<version>.zip, and its SHA-256 on stdout
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -34,14 +33,6 @@ rm -f "$ZIP"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 
 SHA=$(shasum -a 256 "$ZIP" | awk '{print $1}')
-
-# The cask names the exact zip by version and checksum, so it is rewritten from the same two
-# values rather than by hand. Copy it into Casks/sandglass.rb in the tap after the release is up.
-CASK="../packaging/homebrew/sandglass.rb"
-if [ -f "$CASK" ]; then
-  perl -pi -e "s/^  version \".*\"/  version \"$VERSION\"/; s/^  sha256 \".*\"/  sha256 \"$SHA\"/" "$CASK"
-  echo "== updated $CASK =="
-fi
 
 echo
 echo "Release: $ZIP"

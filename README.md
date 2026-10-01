@@ -73,17 +73,6 @@ or lock the settings behind a timer or a passcode.
 
 ## Install
 
-### With Homebrew
-
-```sh
-brew install --cask moritzthln/tap/sandglass
-```
-
-The cask removes the quarantine flag for you, so Gatekeeper does not stop the first launch.
-Continue with **Accessibility** and **Automation** below (steps 4 and 5).
-
-### By hand
-
 1. **Download** `Sandglass-<version>.zip` from the
    [latest release](https://github.com/moritzthln/sandglass/releases/latest) and unzip it.
 2. **Drag `Sandglass.app` to `/Applications`.**
@@ -111,10 +100,9 @@ Settings → Protection.
 
 ## Updating
 
-- **Homebrew:** `brew upgrade --cask sandglass`.
-- **By hand:** replace `/Applications/Sandglass.app` with the new version, then choose **Quit**
-  on Sandglass's Settings page. The start-at-login agent brings the new version up within
-  seconds.
+Download the new release, unzip it and replace `/Applications/Sandglass.app` with it, then
+choose **Quit** on Sandglass's Settings page. The start-at-login agent brings the new version up
+within seconds.
 
 Because Sandglass is ad-hoc signed, macOS treats every new version as a new app: after each
 update, open **System Settings → Privacy & Security → Accessibility**, remove the old Sandglass
@@ -182,10 +170,7 @@ suggestions.
 
 ## Uninstall
 
-With Homebrew, `brew uninstall --cask sandglass` stops the agent and removes the app;
-add `--zap` to delete your settings and history as well.
-
-By hand, remove the agent first, otherwise launchd starts the app again within seconds:
+Remove the agent first, otherwise launchd starts the app again within seconds:
 
 ```sh
 launchctl bootout gui/$(id -u)/io.github.moritzthln.sandglass.agent

@@ -32,7 +32,6 @@ First public release.
 - Start at login and restart within seconds through a launchd `KeepAlive` agent.
 - Stats page from a local event log.
 - All data on-device in `~/Library/Application Support/Sandglass`.
-- A Homebrew cask for the `moritzthln/tap` tap; `release.sh` fills in its version and checksum.
 
 [Unreleased]: https://github.com/moritzthln/sandglass/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/moritzthln/sandglass/releases/tag/v1.0.0
