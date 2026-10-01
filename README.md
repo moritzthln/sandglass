@@ -34,6 +34,48 @@ and the thing you reach for out of habit. Everything stays on your Mac.
   from weakening your rules at 23:40. Adding a site or a longer pause always goes through.
 - **Everything on-device.** No account, no analytics, no server.
 
+## How it compares
+
+Most Mac blockers pick one of two extremes. Either they are a wall with no door — a fixed timer
+you cannot leave, enforced by a root daemon that rewrites your network settings — or they are a
+subscription service that routes your traffic through a proxy and wants an account. Sandglass sits
+between them: real enforcement, a way through that costs something, and nothing installed outside
+the app.
+
+|  | **Sandglass** | SelfControl | Cold Turkey | Freedom |
+|---|:---:|:---:|:---:|:---:|
+| Price | **Free** | Free | Free tier, Pro $45 once | $39.99 / year |
+| Open source | ✅ | ✅ | ❌ | ❌ |
+| Blocks apps, not just websites | ✅ | ❌ | ✅ | ✅ |
+| No account | ✅ | ✅ | ✅ | ❌ |
+| No admin password, no root helper | ✅ | ❌ | ❌ | ❌ |
+| Leaves your network alone (no hosts file, firewall rules or proxy) | ✅ | ❌ | ✅ | ❌ |
+| Unaffected by a VPN | ✅ | ❌ | ✅ | — |
+| Activity Monitor always stays reachable | ✅ | ✅ | ❌ | — |
+
+<sub>— means not documented. Based on each product's public documentation and source code as of August 2026. Something out
+of date? [Open an issue](https://github.com/moritzthln/sandglass/issues) and it gets fixed.</sub>
+
+What you get that the table can't show:
+
+- **A pause, not a wall.** Opening a blocked site or app shows a countdown, then an Open button —
+  and spends one of the day's opens. Most blockers only know *blocked* and *not blocked*.
+- **Budgets that fit how people actually slip.** Opens per day, a length per open, a daily time
+  limit, a cooldown between opens, waits that grow with every open, and half an open earned back
+  for staying away.
+- **Rules that read like sentences.** Block `youtube.com` but allow `music.youtube.com`. Block
+  `reddit.com/r/` but not the rest of Reddit. Exceptions carve out a place, so a URL with the
+  allowed name in its path can't sneak through.
+- **Strict when you ask for it.** Weekly time windows, *block until a day*, a settings lock and a
+  passcode — per group or for everything. A lock holds loosening only, so you can always make a
+  rule stricter, even mid-block.
+- **Hard to wriggle out of, impossible to get trapped in.** Quitting is undone within seconds,
+  the system clock can't be wound forward to end a block, and revoking a permission during a hard
+  block hides the whole browser instead of quietly letting it through. Finder, System Settings and
+  Activity Monitor are never touched, and there is always a way out you chose in advance.
+- **Every major browser, no extension.** Safari, Chrome, Arc, Brave, Edge and Firefox are read
+  through macOS's own interfaces. Nothing to install in the browser, and nothing to quietly disable.
+
 ## A tour
 
 ### Groups and time windows
