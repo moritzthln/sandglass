@@ -19,7 +19,7 @@ jobs:
       run:
         working-directory: mac
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The runners carry Xcode rather than the Command Line Tools build-app.sh pins locally.
       # Pointing DEVELOPER_DIR at the selected Xcode makes every step below use it, and makes
