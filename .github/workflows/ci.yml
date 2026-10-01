@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: mac
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runners carry Xcode rather than the Command Line Tools build-app.sh pins locally.
+      # Pointing DEVELOPER_DIR at the selected Xcode makes every step below use it, and makes
+      # build-app.sh take its Xcode branch (`swift build --arch arm64 --arch x86_64`).
+      - name: Select toolchain
+        run: |
+          echo "DEVELOPER_DIR=$(xcode-select -p)" >> "$GITHUB_ENV"
+          xcode-select -p
+          swift --version
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift run SandglassTests
+
+      - name: Build the universal app
+        run: |
+          scripts/build-app.sh
+          lipo -archs build/Sandglass.app/Contents/MacOS/Sandglass | grep -q arm64
+          lipo -archs build/Sandglass.app/Contents/MacOS/Sandglass | grep -q x86_64

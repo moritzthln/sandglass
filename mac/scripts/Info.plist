@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>io.github.moritzthln.sandglass</string>
+  <key>CFBundleName</key><string>Sandglass</string>
+  <key>CFBundleExecutable</key><string>Sandglass</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.0.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <!-- A menu-bar app has no Dock tile, so this is read in the Finder, in the "open with" list, and
+       above all in System Settings' Accessibility and Automation lists — where an ad-hoc signed
+       app sends its user after every single reinstall. Drawn by scripts/make-icon.swift. -->
+  <key>CFBundleIconFile</key><string>Sandglass</string>
+  <!-- Shown in macOS's own Automation prompt, once per browser. Without the key the prompt has
+       no reason on it, and a hardened build would be terminated for asking at all. -->
+  <key>NSAppleEventsUsageDescription</key><string>Sandglass asks your browser which page is in front, so a blocked site meets the same pause screen a blocked app does.</string>
+  <!-- No CFBundleURLTypes, deliberately. The block page's Open button used to link to
+       sandglass://open?token=…, and the scheme was the wrong mechanism twice over: a browser puts
+       its own "open Sandglass?" confirmation in front of every press, and in practice the press did
+       nothing at all. The button is an ordinary link to the site now — the browser walks there by
+       itself and the 1 Hz poll reads the new address, which EarnedOpens is what lets through.
+       Nothing here has to be registered for a link to work. -->
+  <!-- What a group card being dragged in the sidebar carries. Declared so the drag has a type of
+       its own: without it the payload would be plain text, every card would be a drop target for
+       any word dragged out of any app, and a card dragged the other way would paste its raw id.
+       See DraggedGroup. -->
+  <key>UTExportedTypeDeclarations</key>
+  <array><dict>
+    <key>UTTypeIdentifier</key><string>io.github.moritzthln.sandglass.group</string>
+    <key>UTTypeDescription</key><string>Sandglass group</string>
+    <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+  </dict></array>
+</dict></plist>

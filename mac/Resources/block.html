@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<!--
+  The page a blocked tab is navigated to. One file, two states, no framework, no network, no
+  fonts to fetch — it is opened from file:// inside the app bundle, so anything it reached for
+  would simply not arrive.
+
+  What it says is decided entirely by the query the app builds; see BlockPage.swift. The page
+  itself decides nothing and enforces nothing: its countdown is cosmetic, and the app checks the
+  wait again for itself before it will spend an open. A countdown that could be skipped by
+  editing the address bar would be no countdown at all.
+
+  THE BUTTON IS A LINK — it does not talk to the app at all.
+
+  It is an <a href> at the site, and pressing it is the browser doing what browsers do. Nothing is
+  sent anywhere, nothing is asked of the browser, and there is no handoff to get the order of
+  wrong. The app finds out the ordinary way: it reads the frontmost tab's address once a second,
+  and on the next read it sees the site, finds the wait it imposed has been served, and leaves the
+  page alone. See EarnedOpens.swift.
+
+  Two mechanisms came before this one, and both failed in the same place. A link to
+  sandglass://open?token=… put the browser's own "open Sandglass?" confirmation in front of the one
+  control that exists to be the way through, and in practice the press did nothing at all. Then
+  this page rewrote its own address so the poll could read a token off it, and that got as far as
+  saying "Opening…" and no further. Both are the same shape: the button tells the app, and the app
+  moves the tab. A link has neither half.
+
+  The href is absolute and comes from the app, in the "opens" field. It has to: this page is loaded
+  from file://, so href="instagram.com" would resolve against the app bundle and land on a "file
+  not found" of the browser's own.
+
+  DESIGN — almost empty, and always dark.
+
+  The countdown is the page. Everything else is one line of identity, one line of state, and the
+  button; there is no card, no border, no logo and no explanation of what Sandglass is, because a
+  person reading this is annoyed and does not want to be talked to. Air is the design.
+
+  Always dark, deliberately not prefers-color-scheme. The point of the colour is that this does
+  not look like the site that was expected — a white page reads as the site failing to load, which
+  sends somebody to reload it rather than to notice they blocked it. The graphite and the teal are
+  the app icon's own, from scripts/make-icon.swift: #161B22 is its background and #5FC9B4 its ring.
+
+  Everything read out of the query is written with textContent. Never innerHTML: the name comes
+  from a group the user typed and the target from an address a browser handed over, and neither
+  is markup this page has any business running.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blocked — Sandglass</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page: #161B22;
+    --ink: #E9EEF3;
+    --muted: #7C8894;
+    --accent: #5FC9B4;
+    --accent-ink: #10211D;
+  }
+  * { box-sizing: border-box; }
+  html { height: 100%; }
+  body {
+    margin: 0;
+    min-height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px;
+    background: var(--page);
+    color: var(--ink);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main {
+    width: 100%;
+    max-width: 26rem;
+    text-align: center;
+  }
+
+  /* The one thing on the page. Light rather than bold: it is a number to watch, not a warning —
+     and tabular figures so the layout does not twitch once a second. */
+  #wait {
+    font-size: clamp(3.25rem, 17vw, 6.5rem);
+    font-weight: 200;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    margin-bottom: clamp(1.5rem, 6vh, 2.75rem);
+  }
+
+  #name {
+    margin: 0;
+    font-size: clamp(1.0625rem, 4.5vw, 1.25rem);
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+  /* Only shown when it says something the name does not — see the script. Clamped to two lines,
+     because a long address is still a long address and this page is not about it. */
+  #target {
+    /* Narrower than everything else on purpose. A thread URL is the longest string this page can
+       be handed and the least interesting thing on it, so it wraps early and stops at two lines
+       rather than becoming the widest element under a name it is only qualifying. */
+    max-width: 20rem;
+    margin: 6px auto 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+  #line {
+    margin: 10px 0 0;
+    font-size: 0.9375rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+
+  /* The wait is the friction, so the button is not there to be aimed at early. It appears when
+     the countdown reaches zero — but it keeps its space from the start, so nothing on the page
+     moves at the one moment somebody is looking straight at it. */
+  #open {
+    display: inline-block;
+    margin-top: clamp(1.75rem, 6vh, 2.5rem);
+    padding: 11px 30px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font: inherit;
+    font-weight: 600;
+    text-decoration: none;
+    visibility: hidden;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+  }
+  #open.ready { visibility: visible; opacity: 1; }
+  #open:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  /* No way through: no countdown to watch and no button to press, so neither takes any room. */
+  main.blocked #wait, main.blocked #open { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <div id="wait">&nbsp;</div>
+  <h1 id="name">Blocked</h1>
+  <p id="target" hidden></p>
+  <p id="line"></p>
+  <!-- rel="noreferrer" so the site is never told which page sent somebody to it. There is nothing
+       here it has any business reading, and a block page's address says what was blocked. -->
+  <a id="open" rel="noreferrer">Open</a>
+</main>
+<script>
+(function () {
+  "use strict";
+
+  var query = new URLSearchParams(window.location.search);
+  var target = query.get("target") || "";
+  var mode = query.get("mode") === "wait" ? "wait" : "blocked";
+  var endsAt = parseInt(query.get("ends"), 10);
+  // Where the button goes. Built by the app — see BlockPage.opening(from:target:) — because
+  // getting a scheme onto it is a decision, and this page decides nothing.
+  var opens = query.get("opens") || "";
+
+  var main = document.querySelector("main");
+  var name = document.getElementById("name");
+  var line = document.getElementById("line");
+  var wait = document.getElementById("wait");
+  var open = document.getElementById("open");
+
+  name.textContent = query.get("name") || "This site";
+  document.title = name.textContent + " — blocked by Sandglass";
+  showTargetIfItAddsAnything();
+
+  if (mode === "blocked") {
+    // Nothing to press, so nothing is offered. The app is watching; when the block lifts it
+    // navigates this tab back on its own.
+    main.classList.add("blocked");
+    line.textContent = query.get("until") || "Blocked right now";
+    return;
+  }
+
+  line.textContent = query.get("budget") || "";
+
+  // The whole reason the end time is in the query rather than a duration: a reload lands back
+  // here with the same deadline instead of a fresh wait.
+  if (!isFinite(endsAt)) { endsAt = 0; }
+
+  // Set once, here, and never touched again. There is no click handler: a handler is a place a
+  // press can go missing, and both of the mechanisms this replaced went missing in one.
+  open.href = opens;
+
+  function left() {
+    return Math.max(0, Math.ceil(endsAt - Date.now() / 1000));
+  }
+
+  /* m:ss, which is how a person reads a wait. Minutes are not padded and seconds always are, so
+     a five-minute pause counts 5:00 … 0:09 … 0:00 and the digits never change in number. */
+  function clock(seconds) {
+    var s = seconds % 60;
+    return Math.floor(seconds / 60) + ":" + (s < 10 ? "0" : "") + s;
+  }
+
+  function draw() {
+    var seconds = left();
+    wait.textContent = clock(seconds);
+    if (seconds > 0) { return; }
+    // A wait that ran out with nowhere to go leaves nothing to offer, and a button that could not
+    // work is worse than none. Whether the *app* will still honour the wait is not this page's
+    // problem to detect: a wait it is no longer holding gets this page redrawn with a countdown it
+    // is, so the button is worth showing whenever there is an address behind it.
+    if (opens) { open.classList.add("ready"); }
+    clearInterval(timer);
+  }
+
+  /* The address, but only when the name is not already saying it.
+     A group made of one website is called by that website — "instagram.com", or "TikTok" — so
+     printing both would be the same word twice on a page whose whole point is that there is
+     almost nothing on it. A group called "Social" is a different matter: without this line it
+     never says which page was blocked, which is the one fact somebody staring at it wants.
+
+     The comparison is against the host's first label, so "TikTok" and "tiktok.com" count as the
+     same word while "Social" and "reddit.com" do not. The scheme, the "www." and a lone trailing
+     slash all go: none of them is information anybody wants here. */
+  function showTargetIfItAddsAnything() {
+    var shown = target
+      .replace(/^[a-z][a-z0-9+.-]*:\/\//i, "")
+      .replace(/^www\./i, "")
+      .replace(/\/$/, "");
+    if (!shown) { return; }
+    var host = shown.split(/[/?#]/)[0].toLowerCase();
+    var called = name.textContent.trim().toLowerCase();
+    if (!host || host === called || host.split(".")[0] === called) { return; }
+    var element = document.getElementById("target");
+    element.textContent = shown;
+    element.hidden = false;
+  }
+
+  var timer = setInterval(draw, 250);
+  draw();
+})();
+</script>
+</body>
+</html>

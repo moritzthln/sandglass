@@ -1,0 +1,29 @@
+# Secrets — never commit any env file
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Xcode / Swift
+mac/**/xcuserdata/
+mac/**/*.xcuserstate
+mac/DerivedData/
+mac/build/
+mac/.build/
+*.ipa
+*.dSYM.zip
+.swiftpm/
+
+# Local tool caches and settings
+.firecrawl/
+.claude/settings.local.json
