@@ -10,10 +10,7 @@
 ![Swift 5.10](https://img.shields.io/badge/Swift-5.10-F05138)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.png">
-  <img alt="The Sandglass window: four groups in the sidebar, the Video group open with its websites and two strict time windows drawn across the week." src="assets/hero-light.png" width="880">
-</picture>
+<img alt="The Sandglass window in dark mode: four groups in the sidebar, the Video group open with its three websites, two strict time windows drawn across the week, and its pause and budget settings." src="assets/hero.png" width="880">
 
 </div>
 
@@ -46,7 +43,7 @@ see it at a glance.
 
 ### The pause screen
 
-<img alt="The pause screen: the group name, '3 of 5 opens left today', a disabled 'Open in 30s…' button and 'Back to work'." src="assets/pause-screen.png" width="600">
+<img alt="The pause screen: the group name, '3 of 5 opens left today', a disabled 'Open in 29s…' button and 'Back to work'." src="assets/pause-screen.png" width="600">
 
 Opening a blocked app shows a dark, still screen with a countdown. When it runs out you may open
 the app, which spends one of the day's opens. "Back to work" is always there and never moves.
@@ -60,7 +57,7 @@ button is an ordinary link back to the page you wanted. Other tabs are untouched
 
 ### Block until a day
 
-<img alt="The 'Block until a day' sheet with a calendar and the button 'Blocked until Friday, 2 October'." src="assets/dated-block.png" width="340">
+<img alt="The 'Block until a day' sheet with a calendar and the button 'Blocked until Friday, 2 October'." src="assets/dated-block.png" width="400">
 
 Shut a group until a date, for a week of exams or a holiday. The block ends when that day begins.
 
