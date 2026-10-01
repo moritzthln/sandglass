@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/icon.png" width="128" height="128" alt="Sandglass app icon">
+
 # Sandglass
 
 **A calm app and website blocker for the Mac: friction you chose, not a warden.**
