@@ -10,8 +10,6 @@ Thanks for taking the time. Bug reports, fixes and well-argued feature ideas are
   describe the problem before the solution. Sandglass is deliberately small, and the most common
   answer to a feature request is a simpler version of it.
 
-By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
-
 ## Build and test
 
 You need macOS 14 or later and the Xcode Command Line Tools (or Xcode).
