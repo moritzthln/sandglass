@@ -111,9 +111,8 @@ func drawHourglass(into context: CGContext) {
 
 // MARK: - Rendering the slices
 
-func render(edge: Int) -> Data? {
-    let side = CGFloat(edge)
-    guard let context = CGContext(
+func bitmapContext(edge: Int) -> CGContext? {
+    CGContext(
         data: nil,
         width: edge,
         height: edge,
@@ -121,13 +120,30 @@ func render(edge: Int) -> Data? {
         bytesPerRow: 0,
         space: CGColorSpaceCreateDeviceRGB(),
         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else { return nil }
+    )
+}
+
+/// The icon drawn once, at the largest slice. Every smaller slice is this image scaled down.
+///
+/// Drawing each slice directly does not work for the glyph: the tinted symbol is an `NSImage`
+/// drawn into a context scaled to the slice, and AppKit rasterizes it far coarser than the slice
+/// needs, so everything below 1024 came out visibly pixelated — in the Dock and the Finder, the
+/// sizes people actually see. A high-quality downsample from one sharp master has no such failure.
+let master: CGImage? = {
+    guard let context = bitmapContext(edge: 1024) else { return nil }
     context.setAllowsAntialiasing(true)
     context.interpolationQuality = .high
-    drawIcon(into: context, edge: side)
+    drawIcon(into: context, edge: 1024)
+    return context.makeImage()
+}()
+
+func render(edge: Int) -> Data? {
+    guard let master, let context = bitmapContext(edge: edge) else { return nil }
+    context.interpolationQuality = .high
+    context.draw(master, in: CGRect(x: 0, y: 0, width: edge, height: edge))
     guard let image = context.makeImage() else { return nil }
     let rep = NSBitmapImageRep(cgImage: image)
-    rep.size = NSSize(width: side, height: side)
+    rep.size = NSSize(width: edge, height: edge)
     return rep.representation(using: .png, properties: [:])
 }
 
