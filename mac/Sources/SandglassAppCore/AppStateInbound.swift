@@ -77,6 +77,22 @@ extension AppState {
         finishMutation()
     }
 
+    /// The password typed into the pause screen of a group that opens only with one. Finishes the
+    /// mutation like an open does, so the blocked set — and every tab parked on the block page —
+    /// is re-decided on the spot.
+    public func tryAccessPassword(_ password: String, targetID: String) -> AccessAttempt {
+        let result = ledger.tryAccessPassword(password, targetID: targetID)
+        finishMutation()
+        return result
+    }
+
+    /// The same, typed into the prompt a block page's "Enter password" raised.
+    public func tryAccessPassword(_ password: String, forURL url: String) -> AccessAttempt {
+        let result = ledger.tryAccessPassword(password, url: url)
+        finishMutation()
+        return result
+    }
+
     /// One second of a managed page, charged from inside the loop.
     ///
     /// The web counterpart of `ledger.recordSecond(inFrontmost:)`, and deliberately not finishing

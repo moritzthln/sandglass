@@ -19,6 +19,8 @@ protocol PageBlockerHost: AnyObject {
     func clearOverlay()
     func refreshOverlay()
     func wasRecentlyHidden(_ bundleID: String) -> Bool
+    /// A block page's "Enter password" was pressed. `target` is the page it is about.
+    func askForPassword(name: String, target: String, browser: NSRunningApplication)
 }
 
 /// The web half of the blocker: what page is in front, and what happens to a tab that is blocked.
@@ -76,6 +78,10 @@ final class PageBlocker {
     /// The browser the poll last saw sitting on our own block page. Which browser to ask about a
     /// parked tab, at the moment there is none in front to ask. See `LastBlockPage`.
     private var lastBlockPage = LastBlockPage()
+
+    /// The "Enter password" presses already answered, so one press raises one prompt rather than
+    /// one a second. See `AnsweredAsks`.
+    private var asks = AnsweredAsks()
 
     /// The store arrives here rather than being made here, so the app has one of them. What is
     /// built from it writes into the same directory as the settings and the history: the
@@ -331,12 +337,13 @@ final class PageBlocker {
             // the button appears the instant the page's own clock reaches zero and the poll is a
             // second wide. See `EarnedOpens`.
             earned.promise(target: url, tab: page.tab, countdownSeconds: total, now: now)
-        case .blocked:
-            // A wall grants nothing, and it also **takes back** whatever the wait it replaced was
-            // going to grant: a strict window opening over a countdown four minutes in must not
-            // leave a claim that ripens a minute later. The engine would refuse that walk anyway,
-            // which is what makes this belt and braces rather than the guard — but a clearance
-            // that outlived the block it was earned against has no business existing at all.
+        case .blocked, .password:
+            // A wall grants nothing, and neither does a page waiting for its password. It also
+            // **takes back** whatever the wait it replaced was going to grant: a strict window
+            // opening over a countdown four minutes in must not leave a claim that ripens a minute
+            // later. The engine would refuse that walk anyway, which is what makes this belt and
+            // braces rather than the guard — but a clearance that outlived the block it was earned
+            // against has no business existing at all.
             earned.forget(target: url, tab: page.tab)
         }
     }
@@ -407,6 +414,11 @@ final class PageBlocker {
         guard !cleared.holds(query.target, in: page.bundleID) else {
             navigateBack(to: query, in: page.known)
             return
+        }
+        // The password page's button is a link back to this page with a fresh nonce on it, and
+        // this is where the press is seen. The prompt is ours, never a field on the page.
+        if case .password = model.mode, query.mode == .password, asks.isNew(query.ask) {
+            host.askForPassword(name: query.name, target: query.target, browser: page.running)
         }
         let shapeChanged = BlockPage.Mode(model.mode) != query.mode
         let waitIsOrphaned = query.mode == .wait

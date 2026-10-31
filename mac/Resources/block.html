@@ -24,6 +24,13 @@
   saying "Opening…" and no further. Both are the same shape: the button tells the app, and the app
   moves the tab. A link has neither half.
 
+  ONE STATE HAS A BUTTON THAT IS NOT A LINK TO THE SITE: mode=password, a group that opens only
+  with its password. The password is never typed here — whatever a page holds can end up in an
+  address, the history or a synced tab list. The button is a link back to this same page with an
+  "ask" nonce on the end; the app reads the address on its next poll, sees a press it has not
+  answered, and asks in a window of its own. When the password opens the group, the app sends this
+  tab to the site the ordinary way. See BlockPage.Mode.password and AnsweredAsks.
+
   The href is absolute and comes from the app, in the "opens" field. It has to: this page is loaded
   from file://, so href="instagram.com" would resolve against the app bundle and land on a "file
   not found" of the browser's own.
@@ -138,6 +145,9 @@
   #open:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   /* No way through: no countdown to watch and no button to press, so neither takes any room. */
   main.blocked #wait, main.blocked #open { display: none; }
+  /* The password state has no countdown, and its button is there from the start. */
+  main.password #wait { display: none; }
+  main.password #open { visibility: visible; opacity: 1; }
 </style>
 </head>
 <body>
@@ -156,7 +166,8 @@
 
   var query = new URLSearchParams(window.location.search);
   var target = query.get("target") || "";
-  var mode = query.get("mode") === "wait" ? "wait" : "blocked";
+  var mode = query.get("mode");
+  if (mode !== "wait" && mode !== "password") { mode = "blocked"; }
   var endsAt = parseInt(query.get("ends"), 10);
   // Where the button goes. Built by the app — see BlockPage.opening(from:target:) — because
   // getting a scheme onto it is a decision, and this page decides nothing.
@@ -177,6 +188,11 @@
     // navigates this tab back on its own.
     main.classList.add("blocked");
     line.textContent = query.get("until") || "Blocked right now";
+    return;
+  }
+
+  if (mode === "password") {
+    showPasswordState();
     return;
   }
 
@@ -211,6 +227,27 @@
     // is, so the button is worth showing whenever there is an address behind it.
     if (opens) { open.classList.add("ready"); }
     clearInterval(timer);
+  }
+
+  /* "Locked — password required", and a button that asks the app for the password.
+     The button's link is this page again with a fresh "ask" nonce, so every press is a new
+     question and a reload of a page already pressed asks nothing. The query is edited as a
+     string rather than through URLSearchParams, whose serializer writes spaces as "+" — which
+     the app reads as a literal plus. */
+  function showPasswordState() {
+    main.classList.add("password");
+    var asked = query.get("ask");
+    line.textContent = asked
+      ? "Enter the password in the Sandglass window."
+      : "Locked — password required";
+    open.textContent = asked ? "Ask again" : "Enter password";
+    var bytes = new Uint8Array(8);
+    window.crypto.getRandomValues(bytes);
+    var nonce = Array.prototype.map.call(bytes, function (b) {
+      return (b < 16 ? "0" : "") + b.toString(16);
+    }).join("");
+    var search = window.location.search.replace(/&ask=[^&]*/g, "");
+    open.href = window.location.pathname + search + "&ask=" + nonce;
   }
 
   /* The address, but only when the name is not already saying it.

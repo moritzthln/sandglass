@@ -104,6 +104,26 @@ struct OpenLedger {
         engine.recordUsage(groupID: match.groupID, seconds: 1)
     }
 
+    // MARK: - An access password
+
+    /// Try a group's access password for an application. A password that opened the group is
+    /// logged as an open — it is one, bought with the password instead of a wait — and nothing
+    /// about the password itself is written anywhere.
+    func tryAccessPassword(_ password: String, targetID: String) -> AccessAttempt {
+        let result = engine.tryAccessPassword(password, targetID: targetID)
+        if case .unlocked = result { appendEvent(EventKind.open, targetID: targetID) }
+        return result
+    }
+
+    /// The same for a page in a browser.
+    func tryAccessPassword(_ password: String, url: String) -> AccessAttempt {
+        let result = engine.tryAccessPassword(password, url: url)
+        if case .unlocked = result, let match = engine.webMatch(forURL: url) {
+            appendEvent(EventKind.open, groupID: match.groupID)
+        }
+        return result
+    }
+
     // MARK: - The log
 
     // Best-effort by design: `Store.appendEvent` cannot fail loudly, because no statistic is
