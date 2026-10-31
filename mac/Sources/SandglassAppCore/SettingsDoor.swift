@@ -32,6 +32,10 @@ public struct SettingsDoor: Equatable, Sendable {
         /// lifts this lock, so the door has to offer it — the settings page is where the pass
         /// lives, and the settings page is now behind this screen. See `Recovery.note`.
         case emergencyPassOnly
+        /// A group opens with this passcode, so no hour clears it: that would hand the group to
+        /// whoever sets the next one. The pass still lifts the settings — not that group, whose
+        /// own door is the same passcode. See `Config.opensAGroupWithSettingsPasscode`.
+        case heldByPasswordGroup
     }
 
     /// Whether the window shows this screen and nothing else.
@@ -43,8 +47,12 @@ public struct SettingsDoor: Equatable, Sendable {
     public var isClosed: Bool
     public var recovery: Recovery
 
-    public init(lock: SettingsLock, state: SettingsLockState) {
+    public init(lock: SettingsLock, state: SettingsLockState, opensAGroup: Bool = false) {
         isClosed = state.passcodeRequired
+        guard !opensAGroup else {
+            recovery = .heldByPasswordGroup
+            return
+        }
         // In this order because a wait can only ever be running while recovery is on:
         // `SettingsLock.forgotSecondsLeft` refuses to count one left behind by somebody who has
         // since switched it off, so a running countdown is proof of the setting.
@@ -73,7 +81,15 @@ extension SettingsDoor.Recovery {
         switch self {
         case .offer: return "Forgot your passcode?"
         case .waiting: return "Cancel"
-        case .emergencyPassOnly: return "Use emergency pass"
+        case .emergencyPassOnly, .heldByPasswordGroup: return "Use emergency pass"
+        }
+    }
+
+    /// Whether the one control is the week's pass rather than the hour.
+    public var offersOnlyThePass: Bool {
+        switch self {
+        case .emergencyPassOnly, .heldByPasswordGroup: return true
+        case .offer, .waiting: return false
         }
     }
 
@@ -88,6 +104,9 @@ extension SettingsDoor.Recovery {
         case .emergencyPassOnly:
             return "Resetting a forgotten passcode is switched off. This week's emergency pass is"
                 + " the only thing that still unlocks these settings."
+        case .heldByPasswordGroup:
+            return "A group opens with this passcode, so it cannot be reset. This week's emergency"
+                + " pass still unlocks these settings, but not that group."
         }
     }
 
@@ -96,7 +115,7 @@ extension SettingsDoor.Recovery {
         switch self {
         case .offer: return "Clears the passcode an hour from now. Nothing else changes."
         case .waiting: return "The hour cannot be shortened by changing the clock."
-        case .emergencyPassOnly: return nil
+        case .emergencyPassOnly, .heldByPasswordGroup: return nil
         }
     }
 }
@@ -120,13 +139,18 @@ public struct GroupDoor: Equatable, Sendable {
 
     /// The hour that clears a forgotten passcode: offered, or running.
     ///
-    /// No third state. The app-wide lock has a switch that takes recovery away — see
-    /// `SettingsLock.allowForgot` — and a group deliberately has none: the window is a room you
-    /// can decide to lock yourself out of, a group is one page of it, and a per-group trap would
-    /// be bought for nothing.
+    /// No third state for a passcode. The app-wide lock has a switch that takes recovery away —
+    /// see `SettingsLock.allowForgot` — and a group deliberately has none: the window is a room
+    /// you can decide to lock yourself out of, a group is one page of it, and a per-group trap
+    /// would be bought for nothing.
+    ///
+    /// `passwordOnly` is a group that opens only with a password, whose door is that password.
+    /// There the trap is the point: an hour or a pass that cleared it would undo the block it
+    /// guards. The way past a forgotten one is outside the app, and the door says so.
     public enum Recovery: Equatable, Sendable {
         case offer
         case waiting(secondsLeft: Int)
+        case passwordOnly
     }
 
     /// Whether the page shows this screen and nothing else.
@@ -141,12 +165,20 @@ public struct GroupDoor: Equatable, Sendable {
     /// A button that costs the week's one net and does not open the thing it is drawn on is worse
     /// than no button — so it is not drawn, and the line in its place says why.
     public var offersEmergencyPass: Bool
+    /// Whether the door is the group's access password rather than its own passcode.
+    public var opensWithPassword: Bool
 
-    public init(name: String, state: GroupLockState, ignoresAppWideUnblocks: Bool = false) {
+    public init(
+        name: String, state: GroupLockState, ignoresAppWideUnblocks: Bool = false,
+        opensWithPassword: Bool = false
+    ) {
         self.name = name
         isClosed = state.passcodeRequired
-        offersEmergencyPass = !ignoresAppWideUnblocks
-        if let secondsLeft = state.resetSeconds {
+        self.opensWithPassword = opensWithPassword
+        offersEmergencyPass = !ignoresAppWideUnblocks && !opensWithPassword
+        if opensWithPassword {
+            recovery = .passwordOnly
+        } else if let secondsLeft = state.resetSeconds {
             recovery = .waiting(secondsLeft: secondsLeft)
         } else {
             recovery = .offer
@@ -157,15 +189,27 @@ public struct GroupDoor: Equatable, Sendable {
 
     /// What the screen calls itself. The group's name is the whole title: this door stands inside
     /// a window that already says which app is asking.
-    public var title: String { "Enter the passcode for \(name)" }
+    public var title: String {
+        opensWithPassword ? "Enter the password for \(name)" : "Enter the passcode for \(name)"
+    }
 
     /// The one line under it. `SettingsDoor` needs none — a window has no context to give — and
     /// this one does: the sidebar is still there, and somebody who clicked the wrong group has to
     /// be able to tell that is what happened.
-    public var subtitle: String { "This group's settings are behind its own passcode." }
+    public var subtitle: String {
+        opensWithPassword
+            ? "This group opens only with its password, and so do its settings."
+            : "This group's settings are behind its own passcode."
+    }
 
     /// A wrong code, in the words the rest of the app already uses for one.
     public static let wrongPasscode = SettingsLockGate.Refusal.wrongPasscode.text
+
+    /// What a wrong answer at this door says, and what the field is called.
+    public var wrongAnswer: String {
+        opensWithPassword ? "That password doesn't match" : Self.wrongPasscode
+    }
+    public var fieldLabel: String { opensWithPassword ? "Password" : "Passcode" }
 
     /// What stands where the pass control would be, on a group that has opted out of it.
     ///
@@ -191,6 +235,7 @@ extension GroupDoor.Recovery {
         switch self {
         case .offer: return "Forgot this group's passcode?"
         case .waiting: return "Cancel"
+        case .passwordOnly: return ""
         }
     }
 
@@ -200,6 +245,9 @@ extension GroupDoor.Recovery {
             return nil
         case .waiting(let secondsLeft):
             return "Passcode clears in \(SettingsLockGate.countdownText(secondsLeft))"
+        case .passwordOnly:
+            return "There is no way around a forgotten password inside Sandglass, and the"
+                + " emergency pass does not open this group."
         }
     }
 
@@ -208,6 +256,7 @@ extension GroupDoor.Recovery {
         switch self {
         case .offer: return "Clears this group's passcode an hour from now. Nothing else changes."
         case .waiting: return "The hour cannot be shortened by changing the clock."
+        case .passwordOnly: return ""
         }
     }
 }

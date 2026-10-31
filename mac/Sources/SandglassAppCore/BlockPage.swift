@@ -44,6 +44,13 @@ public enum BlockPage {
         /// No way through: what is blocked and until when. No button, because there is nothing
         /// to press.
         case blocked
+        /// The group opens only with its password, and the page offers a button that asks for it.
+        ///
+        /// **The password is never typed into the page.** Anything typed there ends up in an
+        /// address — this page's, the browser's history, a synced tab list — so the button only
+        /// says "ask me": it is a link back to this same page with an `ask` nonce on the end, and
+        /// the poll that reads the address raises Sandglass's own prompt. See `AnsweredAsks`.
+        case password
 
         /// The screen's own shape, as the page's. One conversion rather than one per caller: the
         /// watcher compares the page a tab is on against what the engine says *now*, and two
@@ -52,6 +59,7 @@ public enum BlockPage {
             switch mode {
             case .countdown: self = .wait
             case .blocked: self = .blocked
+            case .password: self = .password
             }
         }
     }
@@ -86,6 +94,9 @@ public enum BlockPage {
         /// does not hand the user a fresh countdown — and so the countdown survives the reload at
         /// all. `wait` only.
         public var endsAt: Date?
+        /// The nonce the page's "Enter password" link adds, or `nil` while nobody has pressed it.
+        /// `password` only. Written by the page and never by this app: see `Mode.password`.
+        public var ask: String?
 
         public init(
             target: String,
@@ -94,7 +105,8 @@ public enum BlockPage {
             budgetLine: String? = nil,
             untilText: String? = nil,
             endsAt: Date? = nil,
-            opens: String? = nil
+            opens: String? = nil,
+            ask: String? = nil
         ) {
             self.target = target
             self.opens = opens ?? BlockPage.opening(from: nil, target: target)
@@ -103,6 +115,7 @@ public enum BlockPage {
             self.budgetLine = budgetLine
             self.untilText = untilText
             self.endsAt = endsAt
+            self.ask = ask
         }
 
         /// The screen the overlay would have shown, as the page's query.
@@ -127,6 +140,8 @@ public enum BlockPage {
                 endsAt = now.addingTimeInterval(TimeInterval(max(0, total)))
             case .blocked(let untilText):
                 self.untilText = untilText
+            case .password:
+                break
             }
         }
     }
@@ -257,7 +272,9 @@ public enum BlockPage {
             endsAt: fields["ends"].flatMap(Double.init).flatMap(moment(fromSeconds:)),
             // Put back through the same rule that built it, so a field somebody edited in the
             // address bar can only ever name the page the target already names.
-            opens: opening(from: fields["opens"], target: target)
+            opens: opening(from: fields["opens"], target: target),
+            // Only on the page that offers it: a nonce stuck onto any other state asks nothing.
+            ask: mode == .password ? fields["ask"].flatMap { $0.isEmpty ? nil : $0 } : nil
         )
     }
 

@@ -78,9 +78,10 @@ public struct BluntBlock: Equatable, Sendable {
     /// The two blocks this responds to: a strict window standing, and a dated block running.
     ///
     /// Both are "shut until a moment you named", which is what makes revoking a grant under one
-    /// of them an exit rather than an inconvenience. The other five reasons are not on the list
-    /// on purpose — a cooldown ends in minutes, a budget comes back tomorrow, a focus session is
-    /// something the user started this hour, and the clock guard is already refusing everything.
+    /// of them an exit rather than an inconvenience. The other reasons are not on the list on
+    /// purpose — a cooldown ends in minutes, a budget comes back tomorrow, a focus session is
+    /// something the user started this hour, the clock guard is already refusing everything, and
+    /// a password group has a way through its owner can take at any moment.
     public static let hardReasons: Set<BlockReason> = [.schedule, .datedBlock]
 
     /// What is being enforced bluntly right now.

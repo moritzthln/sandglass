@@ -46,10 +46,16 @@ cp Resources/block.html "$APP/Contents/Resources/block.html"
 # list is exactly where the user has to go.
 cp Resources/Sandglass.icns "$APP/Contents/Resources/Sandglass.icns"
 
-# Ad-hoc: there is no Developer ID behind this build, which is why a downloaded copy meets
-# Gatekeeper on first launch (see the README) and why macOS drops the Accessibility grant
-# every time the bundle is replaced.
-codesign --force --sign - "$APP"
+# Ad-hoc by default: there is no Developer ID behind this build, which is why a downloaded copy
+# meets Gatekeeper on first launch (see the README). A local install can pass a
+# stable identity instead (`SIGN_IDENTITY="My Local Signing" mac/scripts/install.sh`): macOS ties the
+# Accessibility and Automation grants to the signature, and an ad-hoc signature changes with every
+# build, so without one each reinstall silently revokes both permissions.
+if [ -n "${SIGN_IDENTITY:-}" ]; then
+  codesign --force --sign "$SIGN_IDENTITY" "$APP"
+else
+  codesign --force --sign - "$APP"
+fi
 # Said out loud: a build that quietly lost a slice is the failure this exists to prevent,
 # and it is invisible until somebody on the other architecture cannot open the app.
 echo "Built $APP"

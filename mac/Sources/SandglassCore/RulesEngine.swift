@@ -28,6 +28,10 @@ public final class RulesEngine {
     /// arrive up to a second late but is never lost.
     private var pendingEffects: [EngineEffect] = []
 
+    /// Wrong access passwords, and the wait they have earned. In memory only: see
+    /// `AccessAttempts` for why a restart may forget them.
+    var accessAttempts = AccessAttempts()
+
     /// What a finished day was worth, and the one home for the ISO week both the freeze and
     /// the emergency pass are charged to. See `StreakScoring`.
     private let streak: StreakScoring
@@ -56,7 +60,7 @@ public final class RulesEngine {
 
     /// That same moment with the uptime it was read at, which is how every deadline in the state
     /// is compared. See `ClockReading`.
-    private var reading: ClockReading { time.reading }
+    var reading: ClockReading { time.reading }
 
     /// Whether the system clock is currently behind what this run has already seen.
     ///
@@ -137,9 +141,10 @@ public final class RulesEngine {
     /// The one place the precedence lives: an emergency pass means the engine is off, a focus
     /// session outranks everything under it, paused protection means the engine is off again, a
     /// dated block outranks the whole of the group's week, the group's own break window means the
-    /// engine is off for that group, a strict window outranks a running session, then the day's
-    /// time limit, a session outranks a cooldown, a cooldown an empty budget, and everything left
-    /// is the way in — a pause screen, or, for a group set to no pause, no screen at all.
+    /// engine is off for that group, a strict window outranks a running session, then a group set
+    /// to open only with its password, then the day's time limit, a session outranks a cooldown, a
+    /// cooldown an empty budget, and everything left is the way in — a pause screen, or, for a
+    /// group set to no pause, no screen at all.
     ///
     /// The hard blocks come first on purpose: a session bought before a window opened must
     /// not outlive it, or the window would be worth nothing on the days it matters. The
@@ -149,7 +154,7 @@ public final class RulesEngine {
     /// The two exemptions are held by one condition, not two: a group that ignores the app's
     /// app-wide ways out is passed over by **both** the pass and the break, so the cheaper door
     /// cannot open what the rationed one is refused.
-    private func decision(for managed: GroupLookup.Managed) -> Decision {
+    func decision(for managed: GroupLookup.Managed) -> Decision {
         // Above even the emergency pass, and above every block under it. While the reported clock
         // and the engine's disagree, the app cannot honestly name when anything ends — and the
         // pass is a way out of a block, not a way out of not knowing the time. It lasts exactly as
@@ -164,9 +169,9 @@ public final class RulesEngine {
         // **Unless the group has opted out of it.** A group set to ignore the pass is left exactly
         // where it was: the hour runs, every other group opens, and this one goes on being judged
         // by everything below — the focus session, its own week, its budget. The pass is not spent
-        // any less for it; what changes is only how far it reaches. See
-        // `GroupSettings.ignoresAppWideUnblocks`.
-        if activeEmergencyPassEnd != nil, !managed.settings.ignoresAppWideUnblocks {
+        // any less for it; what changes is only how far it reaches. A password group is opted out
+        // by its password. See `GroupSettings.shutsOutAppWideUnblocks`.
+        if activeEmergencyPassEnd != nil, !managed.settings.shutsOutAppWideUnblocks {
             return .notManaged
         }
         if let endsAt = activeFocusSessionEnd {
@@ -185,7 +190,7 @@ public final class RulesEngine {
         // group falls through to everything below rather than out, so its dated block, its week and
         // its budget go on judging it, and the break itself is granted and runs its full length for
         // every other group.
-        if activeProtectionPauseEnd != nil, !managed.settings.ignoresAppWideUnblocks {
+        if activeProtectionPauseEnd != nil, !managed.settings.shutsOutAppWideUnblocks {
             return .notManaged
         }
         // Above the week, both kinds of it — see `datedBlock(_:)`.
@@ -200,8 +205,9 @@ public final class RulesEngine {
                 untilText: blocked(windows.end(of: window, in: managed.settings))
             )
         }
-        // Ahead of the session on purpose: a time limit that let the session it interrupted
-        // run to the end would be a limit only in name. `advanceToNow` has already ended it.
+        if let gate = passwordGate(managed) { return gate }   // see `passwordGate(_:)`
+        // Ahead of the session on purpose: a limit that let the session it interrupted run on
+        // would be a limit only in name, and `advanceToNow` has already ended that session.
         if budget.isTimeLimitReached(managed.groupID, managed.settings) {
             return .blocked(
                 reason: .timeLimit, untilText: blocked(.at(rolloverText(managed.settings)))
@@ -218,9 +224,8 @@ public final class RulesEngine {
                 reason: .budgetExhausted, untilText: blocked(.at(rolloverText(managed.settings)))
             )
         }
-        // No computed wait is no screen at all — see `GroupBudget.countdownSeconds`, which is
-        // where that rule lives so that a base of nought under escalation still meets one on the
-        // second open of the day.
+        // No computed wait is no screen at all. The rule lives in `GroupBudget.countdownSeconds`,
+        // so a base of nought under escalation still meets one on the second open of the day.
         guard let countdown = budget.countdownSeconds(managed.groupID, managed.settings) else {
             return .opensByItself
         }
@@ -306,6 +311,19 @@ public final class RulesEngine {
         return .granted(sessionSeconds: seconds)
     }
 
+    /// Opens a password group for its `accessMinutes`, and answers how long that is in seconds.
+    /// The same session an open starts, so it relocks, warns and ends exactly like one — only
+    /// nothing is spent from the day to buy it.
+    func startAccessSession(_ managed: GroupLookup.Managed) -> Int {
+        let seconds = managed.settings.accessMinutes * 60
+        let ends = newDeadline(in: TimeInterval(seconds))
+        state.sessions[managed.groupID] = ActiveSession(
+            groupID: managed.groupID, startedAt: now,
+            endsAt: ends.wall, endsAtUptime: ends.uptime, warned: false
+        )
+        return seconds
+    }
+
     /// End the group's session. `early` marks the user's own "I'm done" — the only way
     /// to earn half an open back. Ending nothing is a no-op, and a session that already
     /// ran out was ended by the catch-up above, so a late "I'm done" changes nothing.
@@ -329,7 +347,9 @@ public final class RulesEngine {
     private func end(_ managed: GroupLookup.Managed, early: Bool) {
         guard let session = state.sessions.removeValue(forKey: managed.groupID) else { return }
         startCooldown(managed.groupID, managed.settings, from: now, uptime: reading.uptime)
-        guard early, managed.settings.earnBackEnabled else { return }
+        // A password session was not bought with an open, so leaving it early earns none back.
+        guard early, managed.settings.earnBackEnabled, managed.settings.accessPassword == nil
+        else { return }
         creditEarnBack(session, groupID: managed.groupID)
     }
 
@@ -419,7 +439,9 @@ public final class RulesEngine {
     /// a limit can also be reached by lowering it below what the day has already spent.
     private func reapSessionsOverTimeLimit() {
         for groupID in state.sessions.keys.sorted() {
+            // A password group is not judged by its budgets, so its limit ends nothing either.
             guard let settings = config.activeSettings(forGroup: groupID),
+                  settings.accessPassword == nil,
                   budget.isTimeLimitReached(groupID, settings) else { continue }
             state.sessions.removeValue(forKey: groupID)
             pendingEffects.append(.sessionEnded(groupID: groupID))
@@ -615,7 +637,7 @@ public final class RulesEngine {
     /// The high-water mark moves first, so everything below reads one moment and that moment is
     /// never earlier than the last one. A clock that jumped backwards therefore rolls no day and
     /// clears no counter: `rollDayIfNeeded` is asked about the mark, not about the system clock.
-    private func advanceToNow() {
+    func advanceToNow() {
         advanceClock()
         rollDayIfNeeded()
         ReliefBlocks.expire(&state, at: reading)
@@ -697,7 +719,7 @@ public final class RulesEngine {
 
     /// Which group a target or a URL belongs to. Pure — no catch-up, because it reads the
     /// configuration and never the clock. See `GroupLookup`.
-    private var lookup: GroupLookup { GroupLookup(config: config) }
+    var lookup: GroupLookup { GroupLookup(config: config) }
 
     // MARK: - Budget arithmetic
 

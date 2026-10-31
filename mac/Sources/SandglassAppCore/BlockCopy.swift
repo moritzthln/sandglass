@@ -28,6 +28,8 @@ public enum BlockCopy {
         // Not a reason that ends at a time, which is why it is the one that names a condition:
         // it is over when the clock agrees again. See `BlockReason.clockTampered`.
         case .clockTampered: return "the system clock moved"
+        // The one reason whose way through is not a wait, and the words say which way that is.
+        case .passwordRequired: return "needs its password"
         }
     }
 

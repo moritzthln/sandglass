@@ -34,7 +34,10 @@ struct SettingsDoorView: View {
     @FocusState private var focused: Bool
 
     private var door: SettingsDoor {
-        SettingsDoor(lock: appState.config.settingsLock, state: appState.settingsLockState)
+        SettingsDoor(
+            lock: appState.config.settingsLock, state: appState.settingsLockState,
+            opensAGroup: appState.config.opensAGroupWithSettingsPasscode
+        )
     }
 
     /// Three blocks down one axis: who is asking, what it wants, and the way out.
@@ -151,7 +154,7 @@ struct SettingsDoorView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if case .emergencyPassOnly = recovery {
+            if recovery.offersOnlyThePass {
                 passControl(title: recovery.actionTitle)
             } else {
                 Button(recovery.actionTitle) { start(recovery) }

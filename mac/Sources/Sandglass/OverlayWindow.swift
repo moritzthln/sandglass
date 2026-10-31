@@ -19,9 +19,9 @@ final class OverlayWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
-    /// Every command combination is swallowed. There is no text to edit on this screen and
-    /// nothing worth copying out of it, so a blanket refusal costs nothing and cannot be
-    /// walked around with a shortcut nobody thought to list.
+    /// Every command combination is swallowed. The only text on this screen is a password
+    /// field, and typing it is all it needs — no paste, nothing worth copying out — so a blanket
+    /// refusal costs nothing and cannot be walked around with a shortcut nobody thought to list.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
             return true
@@ -65,6 +65,7 @@ final class OverlaySet {
         var model: PauseScreenModel
         var onOpen: () -> Void
         var onDismiss: () -> Void
+        var onUnlock: (String) -> String?
     }
 
     init() {
@@ -89,9 +90,12 @@ final class OverlaySet {
     func show(
         model: PauseScreenModel,
         onOpen: @escaping () -> Void,
-        onDismiss: @escaping () -> Void
+        onDismiss: @escaping () -> Void,
+        onUnlock: @escaping (String) -> String?
     ) {
-        let presentation = Presentation(model: model, onOpen: onOpen, onDismiss: onDismiss)
+        let presentation = Presentation(
+            model: model, onOpen: onOpen, onDismiss: onDismiss, onUnlock: onUnlock
+        )
         showing = presentation
         if windows.isEmpty {
             build(presentation)
@@ -174,7 +178,8 @@ final class OverlaySet {
         PauseScreenView(
             model: presentation.model,
             onOpen: presentation.onOpen,
-            onDismiss: presentation.onDismiss
+            onDismiss: presentation.onDismiss,
+            onUnlock: presentation.onUnlock
         )
     }
 

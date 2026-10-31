@@ -57,6 +57,18 @@ extension NSAlert {
         )
     }
 
+    /// A password group's password, asked at the quit dialogue. Any one group's will do — see
+    /// `AppState.leavingRefusal(typed:)`.
+    static func accessPasswordForKeepAlive() -> (alert: NSAlert, field: NSSecureTextField) {
+        let prompt = passcodeAlert(
+            informative: "A group opens only with a password, and turning off “Start at login and"
+                + " keep running” would stop it. Enter that group's password.",
+            confirm: "Turn off and quit"
+        )
+        prompt.alert.messageText = "Enter a group's password"
+        return prompt
+    }
+
     /// The shape both passcode prompts share: one secure field, one confirm, one cancel.
     private static func passcodeAlert(
         informative: String, confirm: String

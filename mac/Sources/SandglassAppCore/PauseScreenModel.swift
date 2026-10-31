@@ -44,6 +44,9 @@ public struct PauseScreenModel: Equatable, Sendable {
         /// that changes shape underneath simply reads differently the next time the screen
         /// is drawn.
         case blocked(untilText: String)
+        /// The group opens only with its password: no countdown, a password field instead. A way
+        /// through like `countdown`, so the screen goes up rather than the app going away.
+        case password
     }
 
     public init(targetName: String, budgetLine: String?, mode: Mode) {
@@ -70,6 +73,9 @@ public struct PauseScreenModel: Equatable, Sendable {
                 // A negative wait is not a shorter wait; the button would enable a frame early.
                 mode: .countdown(total: max(0, countdownSeconds))
             )
+        case .blocked(.passwordRequired, _):
+            // No budget line either: a password group is not judged by one.
+            return PauseScreenModel(targetName: info.name, budgetLine: nil, mode: .password)
         case .blocked(_, let untilText):
             // No budget line: the block already says everything true about right now, and a
             // second number under it would read as a way out that is not on offer.
@@ -129,7 +135,7 @@ public enum BlockPresentation: Equatable, Sendable {
             return .nothing
         }
         switch model.mode {
-        case .countdown: return .screen(model)
+        case .countdown, .password: return .screen(model)
         case .blocked: return .sendAway(model)
         }
     }

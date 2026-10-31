@@ -27,7 +27,8 @@ struct GroupDoorView: View {
         GroupDoor(
             name: group.name,
             state: appState.groupLockStates[group.id] ?? GroupLockState(),
-            ignoresAppWideUnblocks: group.settings?.ignoresAppWideUnblocks ?? false
+            ignoresAppWideUnblocks: group.settings?.ignoresAppWideUnblocks ?? false,
+            opensWithPassword: group.settings?.accessPassword != nil
         )
     }
 
@@ -61,7 +62,7 @@ struct GroupDoorView: View {
     /// everything else sits on.
     private var entry: some View {
         VStack(spacing: 0) {
-            SecureField("Passcode", text: $passcode)
+            SecureField(door.fieldLabel, text: $passcode)
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.large)
                 .focused($focused)
@@ -101,7 +102,20 @@ struct GroupDoorView: View {
     /// The pass may be missing from a group that has opted out of it and the hour never is — which
     /// is the whole of why the hour is per group and not switchable off. Their order is what makes
     /// that safe to read: the escape that is always there is the one at the top.
+    @ViewBuilder
     private var recovery: some View {
+        // A password group's door has no escape to offer, and says so in one line.
+        if case .passwordOnly = door.recovery, let note = door.recovery.note {
+            Text(note)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            escapes
+        }
+    }
+
+    private var escapes: some View {
         VStack(spacing: 10) {
             VStack(spacing: 6) {
                 if let note = door.recovery.note {
@@ -175,7 +189,7 @@ struct GroupDoorView: View {
     private func unlock() {
         guard !passcode.isEmpty else { return }
         guard appState.unlockGroup(group.id, passcode: passcode) else {
-            problem = GroupDoor.wrongPasscode
+            problem = appState.accessDoorProblem(forGroup: group.id) ?? door.wrongAnswer
             return
         }
         passcode = ""

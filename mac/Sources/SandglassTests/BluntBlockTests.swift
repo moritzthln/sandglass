@@ -16,7 +16,7 @@ import Foundation
 /// the test target does not link that executable, so it is checked by hand: revoke the grant while
 /// a hard block stands and watch Chrome go — the user trying to get out of their own block.
 func runBluntBlockTests() {
-    testTheTwoReasonsItAnswersAndTheFiveItDoesNot()
+    testTheTwoReasonsItAnswersAndTheRestItDoesNot()
     testNothingIsBluntWhileTheGrantStands()
     testNothingIsBluntBeforeAnybodyHasLooked()
     testAGroupWithNoHardBlockIsLeftDegradedAndHarmless()
@@ -71,17 +71,18 @@ private let notesGroup = "app:\(notes)"
 ///
 /// `CaseIterable` is walked rather than the two being asserted alone, so a reason added later
 /// cannot quietly join or miss this list: whoever adds one has to come here and say which side it
-/// is on. The five that are out are out for one reason each — every one of them has a way through,
+/// is on. The ones that are out are out for one reason each — every one of them has a way through,
 /// or is already refusing everything by itself.
-private func testTheTwoReasonsItAnswersAndTheFiveItDoesNot() {
+private func testTheTwoReasonsItAnswersAndTheRestItDoesNot() {
     expectEqual(
         BluntBlock.hardReasons, [.schedule, .datedBlock],
         "a strict window standing and a dated block running, and nothing else"
     )
     let soft = BlockReason.allCases.filter { !BluntBlock.hardReasons.contains($0) }
     expectEqual(
-        Set(soft), [.budgetExhausted, .cooldown, .focusSession, .timeLimit, .clockTampered],
-        "the five that are deliberately left alone"
+        Set(soft),
+        [.budgetExhausted, .cooldown, .focusSession, .timeLimit, .clockTampered, .passwordRequired],
+        "the six that are deliberately left alone"
     )
 }
 

@@ -54,7 +54,10 @@ struct GroupEditorView: View {
     }
 
     private var door: GroupDoor {
-        GroupDoor(name: group.name, state: appState.groupLockStates[group.id] ?? GroupLockState())
+        GroupDoor(
+            name: group.name, state: appState.groupLockStates[group.id] ?? GroupLockState(),
+            opensWithPassword: group.settings?.accessPassword != nil
+        )
     }
 
     private var page: some View {
@@ -131,9 +134,9 @@ struct GroupEditorView: View {
         } else {
             HStack(alignment: .top, spacing: Metrics.cardSpacing) {
                 TargetsCard(appState: appState, group: group, problem: $problem)
-                // The Lock card is the group's and not the preset's, so it is added here rather
-                // than inside the column: `GroupDetailColumn` is exactly the cards a group and a
-                // preset share, and a preset is a template nothing can be locked to.
+                // The Lock and Access cards are the group's and not the preset's, so they are added
+                // here rather than inside the column: `GroupDetailColumn` is exactly the cards a
+                // group and a preset share, and a preset is a template nothing can be locked to.
                 VStack(spacing: Metrics.cardSpacing) {
                     GroupDetailColumn(
                         settings: settingsBinding, problem: $problem,
@@ -142,6 +145,11 @@ struct GroupEditorView: View {
                     GroupLockCard(
                         appState: appState, groupID: group.id,
                         settings: settingsBinding, problem: $problem,
+                        tighteningOnly: tighteningOnly
+                    )
+                    GroupAccessCard(
+                        settings: settingsBinding, problem: $problem,
+                        hasSettingsPasscode: appState.config.settingsLock.passcode != nil,
                         tighteningOnly: tighteningOnly
                     )
                 }

@@ -95,6 +95,12 @@ struct SettingsVisit {
         )
     }
 
+    /// One group's door, answered by its access password — checked by the engine, whose counter
+    /// every place the password is typed shares.
+    mutating func markAnswered(forGroup groupID: String, at reading: ClockReading) {
+        groups.markAnswered(forGroup: groupID, at: reading)
+    }
+
     // MARK: - What the screens redraw from
 
     /// Where both gates stand this second, in the two values the loop publishes.

@@ -170,7 +170,7 @@ struct EngineReadout {
     /// cannot be an exception to one.
     private var hasImmuneGroup: Bool {
         engine.config.groupSettings.keys.contains {
-            engine.config.activeSettings(forGroup: $0)?.ignoresAppWideUnblocks == true
+            engine.config.activeSettings(forGroup: $0)?.shutsOutAppWideUnblocks == true
         }
     }
 

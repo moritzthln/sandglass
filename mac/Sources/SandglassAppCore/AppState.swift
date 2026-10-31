@@ -569,12 +569,16 @@ public final class AppState {
     /// argument, so a toggle that failed goes back to showing what is actually installed.
     ///
     /// `passcode` is the answer a `.deliberateAction` carries with it — the quit dialogue's. It
-    /// is remembered nowhere, so a second quit attempt asks again.
+    /// is remembered nowhere, so a second quit attempt asks again. `accessPassword` is the
+    /// password of a group that opens only with one, which switching off asks for too — see
+    /// `leavingRefusal(typed:)`.
     @discardableResult
     public func setKeepAlive(
-        _ enabled: Bool, requiring scope: SettingsLockScope, passcode: String? = nil
+        _ enabled: Bool, requiring scope: SettingsLockScope, passcode: String? = nil,
+        accessPassword: String? = nil
     ) -> String? {
         if !enabled, let refusal = lockRefusal(scope, answered: passcode) { return refusal }
+        if !enabled, let refusal = leavingRefusal(typed: accessPassword) { return refusal }
         guard let keepAlive else { return nil }
         let problem = keepAlive.setInstalled(enabled)
         keepAliveEnabled = keepAlive.isInstalled

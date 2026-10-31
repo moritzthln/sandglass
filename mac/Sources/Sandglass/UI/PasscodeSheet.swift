@@ -22,12 +22,12 @@ struct PasscodeSheet: View {
         /// There is one, and it is being replaced. The current one is asked for first.
         case change
 
-        var id: String { title }
+        var id: String { title(for: "passcode") }
 
-        var title: String {
+        func title(for noun: String) -> String {
             switch self {
-            case .set: return "Set a passcode"
-            case .change: return "Change your passcode"
+            case .set: return "Set a \(noun)"
+            case .change: return "Change your \(noun)"
             }
         }
 
@@ -39,6 +39,9 @@ struct PasscodeSheet: View {
     /// anything else is shown under the fields. `current` is empty in `.set`.
     let submit: (_ current: String, _ new: String) -> String?
     let dismiss: () -> Void
+    /// What the secret is called on screen. A group's access password is chosen with this same
+    /// sheet, and the rules about it are the same, so only the word changes.
+    var noun = "passcode"
 
     @State private var current = ""
     @State private var new = ""
@@ -47,15 +50,15 @@ struct PasscodeSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(mode.title).font(.headline)
+            Text(mode.title(for: noun)).font(.headline)
             if mode.asksForCurrent {
-                SecureField("Current passcode", text: $current)
+                SecureField("Current \(noun)", text: $current)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit(attempt)
             }
-            SecureField("New passcode", text: $new)
+            SecureField("New \(noun)", text: $new)
                 .textFieldStyle(.roundedBorder)
-            SecureField("Repeat new passcode", text: $repeated)
+            SecureField("Repeat new \(noun)", text: $repeated)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(attempt)
             // The rule the field enforces, and nothing else. It used to add "there is no way
@@ -88,11 +91,11 @@ struct PasscodeSheet: View {
     /// `submit` as a line to show.
     private func attempt() {
         guard new.count >= PasscodeHash.minimumLength else {
-            problem = "A passcode needs at least \(PasscodeHash.minimumLength) characters."
+            problem = "A \(noun) needs at least \(PasscodeHash.minimumLength) characters."
             return
         }
         guard new == repeated else {
-            problem = "The two passcodes are not the same."
+            problem = "The two \(noun)s are not the same."
             return
         }
         guard let refusal = submit(current, new) else {

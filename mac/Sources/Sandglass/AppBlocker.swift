@@ -31,6 +31,9 @@ final class AppBlocker: BlockerControlling {
 
     private let overlay = OverlaySet()
 
+    /// The small window a block page's "Enter password" raises. See `askForPassword`.
+    private let passwordPanel = AccessPasswordPanel()
+
     /// The web half: what page is in front, and what happens to a tab that is blocked. Built here
     /// because it is this class's collaborator and nobody else's — see `PageBlocker`.
     ///
@@ -298,7 +301,8 @@ final class AppBlocker: BlockerControlling {
         overlay.show(
             model: model,
             onOpen: { [weak self] in self?.openPressed() },
-            onDismiss: { [weak self] in self?.dismissPressed() }
+            onDismiss: { [weak self] in self?.dismissPressed() },
+            onUnlock: { [weak self] password in self?.unlockPressed(password) }
         )
     }
 
@@ -433,6 +437,51 @@ final class AppBlocker: BlockerControlling {
         browser.activate()
     }
 
+    /// The password typed into the pause screen of a group that opens only with one.
+    ///
+    /// The same three endings "Open" has: the group opened, and the user is let through; the world
+    /// moved and something harder now stands in the way, which is shown the way any block is; or
+    /// the password did not open it, and the field says why. Answers that line, or `nil`.
+    private func unlockPressed(_ password: String) -> String? {
+        guard let appState, let subject else { return nil }
+        let attempt: AccessAttempt
+        switch subject {
+        case .app(let bundleID, _):
+            guard let targetID = appState.displayInfo(forBundleID: bundleID)?.targetID else {
+                letThrough(to: subject, granting: bundleID)
+                return nil
+            }
+            attempt = appState.tryAccessPassword(password, targetID: targetID)
+        case .page(let url, _, _):
+            attempt = appState.tryAccessPassword(password, forURL: url)
+        }
+        switch attempt {
+        case .unlocked:
+            letThrough(subject)
+        case .refused(let decision):
+            if !present(decision, info: displayInfo(of: subject, in: appState), for: subject) {
+                letThrough(subject)
+            }
+        case .wrong, .lockedOut, .noSettingsPasscode:
+            break
+        }
+        return AccessCopy.problem(after: attempt)
+    }
+
+    private func letThrough(_ subject: BlockSubject) {
+        switch subject {
+        case .app(let bundleID, _): letThrough(to: subject, granting: bundleID)
+        case .page(let url, _, _): letThrough(to: subject, clearing: url)
+        }
+    }
+
+    private func displayInfo(of subject: BlockSubject, in appState: AppState) -> TargetDisplayInfo? {
+        switch subject {
+        case .app(let bundleID, _): return appState.displayInfo(forBundleID: bundleID)
+        case .page(let url, _, _): return appState.webDisplayInfo(forURL: url)
+        }
+    }
+
     private func dismissPressed() {
         guard let subject else { return }
         switch subject {
@@ -543,5 +592,38 @@ extension AppBlocker: PageBlockerHost {
     /// the page poll must not believe that reading — see `RecentlyHidden`.
     func wasRecentlyHidden(_ bundleID: String) -> Bool {
         recentlyHidden.isRecent(bundleID, now: Date())
+    }
+
+    /// A block page's "Enter password" was pressed: ask in a window of our own.
+    ///
+    /// When the password opens the group, the mutation it finishes re-decides every tab parked on
+    /// the block page — `recheckFrontmost` resolves the parked one first — so the tab is already
+    /// on its way to the site when the browser is handed back the keyboard.
+    func askForPassword(name: String, target: String, browser: NSRunningApplication) {
+        passwordPanel.show(
+            name: name,
+            submit: { [weak self] password in
+                self?.webPasswordTyped(password, target: target, browser: browser)
+            },
+            cancel: { [weak self] in
+                self?.passwordPanel.close()
+                browser.activate()
+            }
+        )
+    }
+
+    private func webPasswordTyped(
+        _ password: String, target: String, browser: NSRunningApplication
+    ) -> String? {
+        guard let appState else { return nil }
+        let attempt = appState.tryAccessPassword(password, forURL: target)
+        switch attempt {
+        case .unlocked, .refused(.notManaged), .refused(.allowed):
+            passwordPanel.close()
+            browser.activate()
+            return nil
+        case .wrong, .lockedOut, .noSettingsPasscode, .refused:
+            return AccessCopy.problem(after: attempt)
+        }
     }
 }

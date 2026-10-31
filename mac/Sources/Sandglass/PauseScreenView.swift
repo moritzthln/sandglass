@@ -12,6 +12,8 @@ struct PauseScreenView: View {
     let model: PauseScreenModel
     let onOpen: () -> Void
     let onDismiss: () -> Void
+    /// What the password field does in `.password` mode: the line to show under it, or `nil`.
+    var onUnlock: (String) -> String? = { _ in nil }
 
     /// The live countdown, tagged with the model it was started for.
     ///
@@ -76,6 +78,15 @@ struct PauseScreenView: View {
             Text(untilText)
                 .font(.callout)
                 .foregroundStyle(.secondary)
+        // A group that opens only with its password: the field takes the countdown's place, and
+        // "Back to work" stays below it where it always is.
+        case .password:
+            VStack(spacing: 12) {
+                Text("Opens only with its password.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                AccessPasswordField(submit: onUnlock)
+            }
         }
     }
 

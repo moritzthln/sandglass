@@ -218,6 +218,9 @@ public enum ConfigBuilder {
         copied.lockMinutes = 0
         copied.passcode = nil
         copied.passcodeForgotStartedAt = nil
+        // **Nor does the access password**, for the passcode's reason: a code nobody chose for
+        // this group, which would have to be remembered as belonging to two.
+        copied.accessPassword = nil
         // **Nor does the dated block**, and for the same reason: it is a one-shot promise about one
         // group, made once and for a reason. A copy is a new group with nothing in it yet, and
         // handing it somebody else's week off — which a lock could then hold them to — would be the
@@ -506,6 +509,9 @@ public enum ConfigBuilder {
         // any preset silently ended a block the user had bought, through the very edit a lock is
         // there to refuse.
         chosen.blockedUntilDay = current.blockedUntilDay
+        // And the access password, which no preset carries either: picking one must not open a
+        // group that was set to open only with its password.
+        chosen.accessPassword = current.accessPassword
         return chosen
     }
 
@@ -541,6 +547,8 @@ public enum ConfigBuilder {
         // group rather than about how it blocks, and no preset can carry one — so reading it here
         // would make every group with a date on it read as Custom until the date passed.
         probe.blockedUntilDay = nil
+        // A fact about this group that no preset carries, so it says nothing about which one fits.
+        probe.accessPassword = nil
         return probe
     }
 
