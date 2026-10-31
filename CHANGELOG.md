@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-31
+
 ### Added
 
 - Open only with a password: a group can be given a password — the settings passcode, or one of
@@ -17,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The same password guards the group's settings like a group passcode, and turning off "Start at
   login and keep running". The emergency pass, "Unblock everything" and the forgotten-passcode
   hour do not open such a group.
+- A local install can be signed with a stable identity (`SIGN_IDENTITY`), so the Accessibility
+  and Automation grants survive updates.
+
+### Fixed
+
+- Moving from AppBlock no longer leaves Sandglass without its keep-alive agent.
 
 ## [1.0.1] - 2026-10-01
 
@@ -50,5 +58,6 @@ First public release.
 - Stats page from a local event log.
 - All data on-device in `~/Library/Application Support/Sandglass`.
 
-[Unreleased]: https://github.com/moritzthln/sandglass/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/moritzthln/sandglass/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/moritzthln/sandglass/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/moritzthln/sandglass/releases/tag/v1.0.1
