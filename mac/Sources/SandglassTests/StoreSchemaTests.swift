@@ -16,6 +16,7 @@ func runStoreSchemaTests() {
     testAGroupCarryingTheOldPassOnlyKeyKeepsItsOptOut()
     testAGroupWithNoDatedBlockDecodes()
     testAnUnreadableDatedBlockIsReadPastRatherThanRefused()
+    testAGroupWrittenBeforeTheAccessPasswordExistedStillDecodes()
     testV1BlockingShapesMigrateToWindows()
     testAWindowStillCarryingItsPresetLabelDecodes()
     testMigratedGroupsAreWrittenBackInTheNewShape()
@@ -598,3 +599,33 @@ private let v1EraConfig = """
           "version" : 1
         }
         """
+
+private let password = "drive-2026"
+
+/// **Absent means the group opens through its budget**, which is what every file written before
+/// the access password existed meant. Written back only when there is one, and never as anything
+/// but the salted hash.
+private func testAGroupWrittenBeforeTheAccessPasswordExistedStillDecodes() {
+    let old = #"{"cooldownMinutes":10,"earnBackEnabled":true,"enabled":true,"escalationSeconds":5,"pauseSeconds":10}"#
+    guard let settings = try? SandglassJSON.decoder.decode(GroupSettings.self, from: Data(old.utf8)) else {
+        failTest("a group written before the access password existed no longer decodes")
+        return
+    }
+    expectNil(settings.accessPassword, "no key means the group opens through its budget")
+    expect(
+        encodedText(settings)?.contains("accessPassword") == false,
+        "and saving it again writes no key"
+    )
+    var locked = GroupSettings.standard
+    locked.accessPassword = PasscodeHash.make(password)
+    guard let text = encodedText(locked),
+          let back = try? SandglassJSON.decoder.decode(GroupSettings.self, from: Data(text.utf8))
+    else {
+        failTest("a group with an access password could not be written and read back")
+        return
+    }
+    expect(text.contains("\"accessPassword\" : {"), "the key appears once there is a password")
+    expect(!text.contains(password), "and the password itself is never written")
+    expectEqual(back, locked, "it comes back off disk unchanged")
+    expect(back.accessPassword?.matches(password) == true, "and still opens with the same password")
+}

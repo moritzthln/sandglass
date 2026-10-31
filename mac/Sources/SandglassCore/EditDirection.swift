@@ -185,6 +185,9 @@ public enum EditDirection {
     ) -> Bool {
         after.lockMinutes >= before.lockMinutes
             && passcodeHolds(after.passcode, against: before.passcode)
+            // The access password moves the same way and for the same reason: setting one shuts
+            // the group behind it, and removing or replacing one is the way back out.
+            && passcodeHolds(after.accessPassword, against: before.accessPassword)
     }
 
     /// A passcode that was not there may be set; one that was there has to survive untouched.

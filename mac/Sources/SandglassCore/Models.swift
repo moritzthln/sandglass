@@ -263,6 +263,20 @@ public struct GroupSettings: Codable, Equatable, Sendable {
     /// .Recovery`, which has no third state for exactly this reason.
     public var ignoresAppWideUnblocks: Bool
 
+    /// The password this group opens with, or `nil` for the ordinary group that opens through its
+    /// budget.
+    ///
+    /// **With one set, the password is the only way through.** No pause, no opens, no cooldown:
+    /// the group is blocked until somebody types it, and then it is open for one session of
+    /// `accessMinutes` and relocks like any other session. Where it sits among the other blocks is
+    /// `RulesEngine.decision(for:)`; the brute-force wait is `AccessAttempts`.
+    ///
+    /// Salted and hashed exactly like the group's passcode — see `PasscodeHash`, which is also
+    /// where what this does and does not defend against is written down. It is a different thing
+    /// from that passcode: the passcode guards this group's **settings**, this guards what the
+    /// group **blocks**.
+    public var accessPassword: PasscodeHash?
+
     /// The day this group is hard-blocked until, as `DatedBlock` spells one, or `nil` for the
     /// ordinary case of no dated block at all.
     ///
@@ -329,7 +343,8 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         passcode: PasscodeHash? = nil,
         passcodeForgotStartedAt: ClockReading? = nil,
         ignoresAppWideUnblocks: Bool = false,
-        blockedUntilDay: String? = nil
+        blockedUntilDay: String? = nil,
+        accessPassword: PasscodeHash? = nil
     ) {
         self.presetID = presetID
         self.pauseSeconds = pauseSeconds
@@ -350,6 +365,7 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         self.passcodeForgotStartedAt = passcodeForgotStartedAt
         self.ignoresAppWideUnblocks = ignoresAppWideUnblocks
         self.blockedUntilDay = blockedUntilDay
+        self.accessPassword = accessPassword
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -358,7 +374,7 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         case enabled, rules
         case categories, categoryExceptions
         case lockMinutes, passcode, passcodeForgotStartedAt, ignoresAppWideUnblocks
-        case blockedUntilDay
+        case blockedUntilDay, accessPassword
         /// Keys older files carry and this build no longer writes. `schedule`, `alwaysBlock` and
         /// `preset` are read on the way in — see `init(from:)`. The rest are not read at all and
         /// are listed only so the reason they are absent is written down beside the ones that
@@ -436,6 +452,8 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         // one level up, where there is one — `ConfigBuilder.droppingPastBlocks(in:onDay:)`, on the
         // way to disk — so the key that reaches this line is one worth writing.
         try container.encodeIfPresent(blockedUntilDay, forKey: .blockedUntilDay)
+        // Only where there is one, like the passcode above it.
+        try container.encodeIfPresent(accessPassword, forKey: .accessPassword)
     }
 
     /// Decoded by hand for the fields that are not `Optional`: a `config.json` written before
@@ -499,7 +517,21 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         // to `.bad` and costs the user every group they have, over one malformed string. The
         // setter above is what turns it down; this only has to hand it over.
         blockedUntilDay = try container.decodeIfPresent(String.self, forKey: .blockedUntilDay)
+        // Absent means the group opens through its budget, which is what every file written
+        // before the password existed meant.
+        accessPassword = try container.decodeIfPresent(PasscodeHash.self, forKey: .accessPassword)
     }
+
+    /// How long one correct password opens the group for: the group's own session length, or
+    /// `defaultAccessMinutes` for a group that has none. A password that opened a group for
+    /// good would be the block switched off by typing, so a group set to never relock still
+    /// relocks here.
+    public var accessMinutes: Int {
+        guard let sessionMinutes, sessionMinutes > 0 else { return Self.defaultAccessMinutes }
+        return sessionMinutes
+    }
+
+    public static let defaultAccessMinutes = 30
 
     /// The old four-case `preset` enum, as an id into the presets the configuration now carries.
     ///

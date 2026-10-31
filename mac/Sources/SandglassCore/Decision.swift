@@ -14,10 +14,14 @@ import Foundation
 /// group is shut. It has a reason of its own rather than borrowing `schedule` because the two are
 /// different things to do something about — a window is redrawn, a date is removed — and because
 /// the sentence in front of it names a date instead of an hour. See `DatedBlock`.
+/// `passwordRequired` is a group set to open only with its password and not opened yet. It names a
+/// condition rather than a time too, and unlike every other case it has a way through that is not
+/// a wait: the password. See `GroupSettings.accessPassword`.
 /// `CaseIterable` so that a reason added later cannot quietly arrive without words of its own: the
 /// suite walks every case and insists each has a distinct clause. See `BlockCopy.why`.
 public enum BlockReason: String, Codable, Sendable, CaseIterable {
     case schedule, datedBlock, budgetExhausted, cooldown, focusSession, timeLimit, clockTampered
+    case passwordRequired
 }
 
 /// What the engine says should happen when a target is opened.
