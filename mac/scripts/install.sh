@@ -41,7 +41,6 @@ AGENT_SERVICE="gui/$(id -u)/io.github.moritzthln.sandglass.agent"
 # while the bundle is swapped. Data is not touched here: the app moves it, once, on first launch.
 LEGACY_LABEL="com.moritz.appblock.agent"
 LEGACY_SERVICE="gui/$(id -u)/$LEGACY_LABEL"
-LEGACY_PLIST="$HOME/Library/LaunchAgents/$LEGACY_LABEL.plist"
 LEGACY_APP="/Applications/AppBlock.app"
 # How long the running app gets to answer SIGTERM. It exits in milliseconds; anything near this
 # means something is wrong, and killing harder would skip its shutdown entirely.
@@ -55,9 +54,14 @@ release_keepalive_agent() {
 }
 
 # Tolerant of every piece being absent, which is every Mac that never ran the old app.
+#
+# The old agent is stopped but its plist is left where it is, on purpose: the plist is how the
+# app's own migration knows a keep-alive agent was running, and it is what tells Sandglass to put
+# its own agent in place. Removing it here made the first launch find nothing, and the migrated
+# configuration — which had long since recorded the agent as set up — left Sandglass running with
+# no keep-alive at all. The migration removes the plist itself once it has read it.
 retire_legacy_appblock() {
   launchctl bootout "$LEGACY_SERVICE" >/dev/null 2>&1 || true
-  [ -n "$HOME" ] && rm -f "$LEGACY_PLIST"
   pkill -x AppBlockApp >/dev/null 2>&1 || true
   if [ -d "$LEGACY_APP" ]; then
     echo "   removing the old $LEGACY_APP…"
