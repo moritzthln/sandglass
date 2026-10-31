@@ -263,19 +263,19 @@ public struct GroupSettings: Codable, Equatable, Sendable {
     /// .Recovery`, which has no third state for exactly this reason.
     public var ignoresAppWideUnblocks: Bool
 
-    /// The password this group opens with, or `nil` for the ordinary group that opens through its
-    /// budget.
+    /// Which password this group opens with, or `nil` for the ordinary group that opens through
+    /// its budget.
     ///
     /// **With one set, the password is the only way through.** No pause, no opens, no cooldown:
     /// the group is blocked until somebody types it, and then it is open for one session of
     /// `accessMinutes` and relocks like any other session. Where it sits among the other blocks is
     /// `RulesEngine.decision(for:)`; the brute-force wait is `AccessAttempts`.
     ///
-    /// Salted and hashed exactly like the group's passcode — see `PasscodeHash`, which is also
-    /// where what this does and does not defend against is written down. It is a different thing
-    /// from that passcode: the passcode guards this group's **settings**, this guards what the
-    /// group **blocks**.
-    public var accessPassword: PasscodeHash?
+    /// **And the same password guards every way of undoing it**: the group's settings sit behind
+    /// it like behind a group passcode (`GroupLockGate`), the app's unblocks do not reach the
+    /// group (`shutsOutAppWideUnblocks`), and switching off the keep-alive asks for it. See
+    /// `AccessPassword` for the two sources it can come from.
+    public var accessPassword: AccessPassword?
 
     /// The day this group is hard-blocked until, as `DatedBlock` spells one, or `nil` for the
     /// ordinary case of no dated block at all.
@@ -344,7 +344,7 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         passcodeForgotStartedAt: ClockReading? = nil,
         ignoresAppWideUnblocks: Bool = false,
         blockedUntilDay: String? = nil,
-        accessPassword: PasscodeHash? = nil
+        accessPassword: AccessPassword? = nil
     ) {
         self.presetID = presetID
         self.pauseSeconds = pauseSeconds
@@ -518,8 +518,11 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         // setter above is what turns it down; this only has to hand it over.
         blockedUntilDay = try container.decodeIfPresent(String.self, forKey: .blockedUntilDay)
         // Absent means the group opens through its budget, which is what every file written
-        // before the password existed meant.
-        accessPassword = try container.decodeIfPresent(PasscodeHash.self, forKey: .accessPassword)
+        // before the password existed meant. Present but unreadable is **still a password** — the
+        // settings passcode — because reading it as none would open the group on a decode error.
+        accessPassword = container.contains(.accessPassword)
+            ? (try? container.decode(AccessPassword.self, forKey: .accessPassword)) ?? .settingsPasscode
+            : nil
     }
 
     /// How long one correct password opens the group for: the group's own session length, or
@@ -532,6 +535,13 @@ public struct GroupSettings: Codable, Equatable, Sendable {
     }
 
     public static let defaultAccessMinutes = 30
+
+    /// Whether the emergency pass and "Unblock everything" leave this group alone: because it
+    /// says so, or because it opens only with a password. A password group the pass could open
+    /// for an hour would be one the week's pass undoes, so the password implies the opt-out.
+    public var shutsOutAppWideUnblocks: Bool {
+        ignoresAppWideUnblocks || accessPassword != nil
+    }
 
     /// The old four-case `preset` enum, as an id into the presets the configuration now carries.
     ///

@@ -59,6 +59,14 @@ public enum EditDirection {
     ) -> Bool {
         guard let before = current.settings(forGroup: groupID) else { return false }
         guard let after = proposed.settings(forGroup: groupID) else { return true }
+        // A group that opens with the settings passcode is loosened by changing or removing that
+        // passcode: either changes what opens the group, and only somebody who holds the current
+        // one may do that. Setting one where there is none is not — it is the only way such a
+        // group can be opened again, and nobody holds a passcode that does not exist.
+        if before.accessPassword == .settingsPasscode, current.settingsLock.passcode != nil,
+           proposed.settingsLock.passcode != current.settingsLock.passcode {
+            return true
+        }
         return !(settingsHold(after, against: before, onDay: today)
             && targetIDs(inGroup: groupID, of: proposed)
                 .isSuperset(of: targetIDs(inGroup: groupID, of: current))
@@ -186,14 +194,15 @@ public enum EditDirection {
         after.lockMinutes >= before.lockMinutes
             && passcodeHolds(after.passcode, against: before.passcode)
             // The access password moves the same way and for the same reason: setting one shuts
-            // the group behind it, and removing or replacing one is the way back out.
+            // the group behind it, and removing it, replacing it or switching its source is the
+            // way back out.
             && passcodeHolds(after.accessPassword, against: before.accessPassword)
     }
 
     /// A passcode that was not there may be set; one that was there has to survive untouched.
     /// Shared by both scopes, because the rule is the same one scope up.
-    private static func passcodeHolds(
-        _ after: PasscodeHash?, against before: PasscodeHash?
+    private static func passcodeHolds<Secret: Equatable>(
+        _ after: Secret?, against before: Secret?
     ) -> Bool {
         guard let before else { return true }
         return after == before

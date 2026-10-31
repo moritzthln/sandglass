@@ -617,15 +617,55 @@ private func testAGroupWrittenBeforeTheAccessPasswordExistedStillDecodes() {
         "and saving it again writes no key"
     )
     var locked = GroupSettings.standard
-    locked.accessPassword = PasscodeHash.make(password)
+    locked.accessPassword = PasscodeHash.make(password).map(AccessPassword.custom)
     guard let text = encodedText(locked),
           let back = try? SandglassJSON.decoder.decode(GroupSettings.self, from: Data(text.utf8))
     else {
         failTest("a group with an access password could not be written and read back")
         return
     }
-    expect(text.contains("\"accessPassword\" : {"), "the key appears once there is a password")
+    expect(text.contains("\"source\" : \"custom\""), "the key says where the password comes from")
     expect(!text.contains(password), "and the password itself is never written")
     expectEqual(back, locked, "it comes back off disk unchanged")
-    expect(back.accessPassword?.matches(password) == true, "and still opens with the same password")
+    expect(
+        back.accessPassword?.matches(password, settingsPasscode: nil) == true,
+        "and still opens with the same password"
+    )
+    testTheSettingsPasscodeSourceIsPinned()
+    testAnUnreadableAccessPasswordStillShutsTheGroup()
+}
+
+/// The settings passcode is stored as a source and nothing else: no copy of its digest, so
+/// changing the passcode in Settings changes what opens the group.
+private func testTheSettingsPasscodeSourceIsPinned() {
+    var settings = GroupSettings.gentle
+    settings.accessPassword = .settingsPasscode
+    let text = encodedText(settings) ?? ""
+    expect(
+        text.contains("""
+              "accessPassword" : {
+                "source" : "settingsPasscode"
+              },
+            """),
+        "the settings passcode is written as its source alone"
+    )
+    expect(!text.contains("digest"), "with no digest copied into the group")
+    let back = try? SandglassJSON.decoder.decode(GroupSettings.self, from: Data(text.utf8))
+    expectEqual(back?.accessPassword, .settingsPasscode, "and read back as the same source")
+}
+
+/// A value this build cannot read must never read as **no** password — that would open the group
+/// on a decode error. It reads as the settings passcode, which keeps the group shut.
+private func testAnUnreadableAccessPasswordStillShutsTheGroup() {
+    let base = #""cooldownMinutes":0,"earnBackEnabled":false,"enabled":true,"escalationSeconds":0,"pauseSeconds":10"#
+    for (value, what) in [
+        (#""accessPassword":"hunter2""#, "a string"),
+        (#""accessPassword":{"source":"fingerprint"}"#, "a source this build does not know"),
+        (#""accessPassword":{}"#, "an empty object"),
+    ] {
+        let json = "{\(base),\(value)}"
+        let settings = try? SandglassJSON.decoder.decode(GroupSettings.self, from: Data(json.utf8))
+        expect(settings != nil, "\(what) does not take the document down")
+        expectEqual(settings?.accessPassword, .settingsPasscode, "\(what) still shuts the group")
+    }
 }

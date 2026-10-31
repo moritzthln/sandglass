@@ -16,8 +16,12 @@ func runAccessPasswordTests() {
     testTheWaitIsMeasuredOnTheUptimeClock()
     testAStrictWindowOutranksThePassword()
     testADatedBlockAndBlockEverythingOutrankThePassword()
-    testThePassAndTheBreakLiftAPasswordGroupUnlessItIgnoresThem()
+    testThePassAndTheBreakNeverLiftAPasswordGroup()
+    testAGroupCanOpenWithTheSettingsPasscode()
+    testWithNoSettingsPasscodeTheGroupStaysShut()
+    testEveryPlaceThePasswordIsTypedSharesOneCounter()
     testSettingAPasswordTightensAndRemovingOrChangingItLoosens()
+    testChangingTheSettingsPasscodeLoosensTheGroupsThatOpenWithIt()
 }
 
 private let password = "drive-2026"
@@ -27,7 +31,7 @@ private func passwordSettings(
 ) -> GroupSettings {
     var settings = base
     settings.sessionMinutes = sessionMinutes
-    settings.accessPassword = PasscodeHash.make(password)
+    settings.accessPassword = PasscodeHash.make(password).map(AccessPassword.custom)
     return settings
 }
 
@@ -198,27 +202,84 @@ private func testADatedBlockAndBlockEverythingOutrankThePassword() {
     )
 }
 
-/// The app's two ways out reach a password group like any other block, and the group's own
-/// opt-out keeps them away, also like any other block.
-private func testThePassAndTheBreakLiftAPasswordGroupUnlessItIgnoresThem() {
+/// The app's two ways out never reach a password group: otherwise the week's pass would be the
+/// password's way around. Every other group opens as usual.
+private func testThePassAndTheBreakNeverLiftAPasswordGroup() {
     let clock = FakeClock(noon)
-    var immune = passwordSettings()
-    immune.ignoresAppWideUnblocks = true
-    let (engine, site, other) = makeTwoGroupEngine(youtube: immune, reddit: passwordSettings(), clock: clock)
+    let (engine, site, other) = makeTwoGroupEngine(youtube: passwordSettings(), clock: clock)
+    expect(passwordSettings().shutsOutAppWideUnblocks, "a password implies the opt-out")
     expect(engine.useEmergencyPass(), "the pass is spent")
-    expectEqual(engine.decision(targetID: other.id), .notManaged, "the pass lifts a password group")
-    expectEqual(engine.decision(targetID: site.id), passwordDecision, "but not one that ignores it")
+    expectEqual(engine.decision(targetID: other.id), .notManaged, "the pass lifts the other group")
+    expectEqual(engine.decision(targetID: site.id), passwordDecision, "and leaves the password group shut")
     expectEqual(
-        engine.tryAccessPassword(password, targetID: other.id), .refused(.notManaged),
-        "and a lifted group has no password to check"
+        engine.tryAccessPassword(password, targetID: site.id), .unlocked(sessionSeconds: 300),
+        "where the password is still the way through"
     )
 
-    let (paused, pausedSite, pausedOther) = makeTwoGroupEngine(
-        youtube: immune, reddit: passwordSettings(), clock: clock
-    )
+    let (paused, pausedSite, pausedOther) = makeTwoGroupEngine(youtube: passwordSettings(), clock: clock)
     expect(paused.pauseProtection(minutes: 30), "a break is taken")
-    expectEqual(paused.decision(targetID: pausedOther.id), .notManaged, "the break lifts it too")
-    expectEqual(paused.decision(targetID: pausedSite.id), passwordDecision, "and leaves the immune one alone")
+    expectEqual(paused.decision(targetID: pausedOther.id), .notManaged, "the break lifts the other group")
+    expectEqual(paused.decision(targetID: pausedSite.id), passwordDecision, "and not the password group")
+}
+
+/// The settings passcode as the group's password, read from the settings every time — so
+/// changing it there changes it here, with no copy kept in the group.
+private func testAGroupCanOpenWithTheSettingsPasscode() {
+    let clock = FakeClock(noon)
+    var settings = GroupSettings.standard
+    settings.accessPassword = .settingsPasscode
+    let target = Target(kind: .domain, value: "drive.google.com", displayName: "Drive")
+    let engine = makeEngine(targets: [target], groupSettings: [target.groupID: settings], clock: clock)
+    var config = engine.config
+    config.settingsLock.passcode = PasscodeHash.make("2468")
+    engine.updateConfig(config)
+    expectEqual(engine.decision(targetID: target.id), passwordDecision, "blocked until the passcode is typed")
+    expectEqual(engine.tryAccessPassword("1357", targetID: target.id), .wrong(attemptsLeft: 4), "another code is wrong")
+    expectEqual(
+        engine.tryAccessPassword("2468", targetID: target.id), .unlocked(sessionSeconds: 300),
+        "the settings passcode opens it"
+    )
+    engine.endSession(targetID: target.id, early: true)
+    config.settingsLock.passcode = PasscodeHash.make("9999")
+    engine.updateConfig(config)
+    expectEqual(engine.tryAccessPassword("2468", targetID: target.id), .wrong(attemptsLeft: 4), "the old passcode no longer does")
+    expectEqual(
+        engine.tryAccessPassword("9999", targetID: target.id), .unlocked(sessionSeconds: 300),
+        "the new one does, with nothing changed on the group"
+    )
+}
+
+/// A missing settings passcode is not an open door: nothing opens the group until one is set.
+private func testWithNoSettingsPasscodeTheGroupStaysShut() {
+    let clock = FakeClock(noon)
+    var settings = GroupSettings.standard
+    settings.accessPassword = .settingsPasscode
+    let (engine, target) = makeEngine(settings: settings, clock: clock)
+    expectEqual(engine.decision(targetID: target.id), passwordDecision, "still blocked with no passcode set")
+    expectEqual(engine.tryAccessPassword("", targetID: target.id), .noSettingsPasscode, "an empty try opens nothing")
+    expectEqual(engine.tryAccessPassword("anything", targetID: target.id), .noSettingsPasscode, "nor does any other")
+    for _ in 1...6 { _ = engine.tryAccessPassword("x", targetID: target.id) }
+    expectNil(engine.accessWaitSeconds(groupID: youtubeGroup), "and those are not counted as wrong tries")
+}
+
+/// The door and the keep-alive switch check the same password through the same counter, so
+/// moving between the places it is typed buys no extra guesses.
+private func testEveryPlaceThePasswordIsTypedSharesOneCounter() {
+    let clock = FakeClock(noon)
+    let (engine, target) = makeEngine(settings: passwordSettings(), clock: clock)
+    expectNil(engine.verifyAccessPassword(password, groupID: youtubeGroup), "the right password checks out")
+    expectEqual(engine.decision(targetID: target.id), passwordDecision, "and checking it opens nothing")
+    for _ in 1...3 { _ = engine.verifyAccessPassword("nope", groupID: youtubeGroup) }
+    expectEqual(engine.tryAccessPassword("nope", targetID: target.id), .wrong(attemptsLeft: 1), "the misses add up")
+    expectEqual(engine.verifyAccessPassword("nope", groupID: youtubeGroup), .wrong(attemptsLeft: 0), "to the wait")
+    expectEqual(
+        engine.verifyAccessPassword(password, groupID: youtubeGroup), .lockedOut(secondsLeft: 60),
+        "which holds everywhere"
+    )
+    expectEqual(
+        engine.verifyAccessPassword(password, groupID: redditGroup), .refused(.notManaged),
+        "a group with no password has nothing to check"
+    )
 }
 
 // MARK: - Settings
@@ -226,9 +287,12 @@ private func testThePassAndTheBreakLiftAPasswordGroupUnlessItIgnoresThem() {
 private func testSettingAPasswordTightensAndRemovingOrChangingItLoosens() {
     let plain = webConfig()
     var locked = plain
-    locked.groupSettings[youtubeGroup]?.accessPassword = PasscodeHash.make(password)
+    locked.groupSettings[youtubeGroup]?.accessPassword = PasscodeHash.make(password).map(AccessPassword.custom)
     var changed = locked
-    changed.groupSettings[youtubeGroup]?.accessPassword = PasscodeHash.make("another-one")
+    changed.groupSettings[youtubeGroup]?.accessPassword =
+        PasscodeHash.make("another-one").map(AccessPassword.custom)
+    var switched = locked
+    switched.groupSettings[youtubeGroup]?.accessPassword = .settingsPasscode
     let day = "2026-08-10"
     expect(
         !EditDirection.loosens(group: youtubeGroup, from: plain, to: locked, onDay: day),
@@ -243,7 +307,44 @@ private func testSettingAPasswordTightensAndRemovingOrChangingItLoosens() {
         "and changing it is a removal and a setting in one edit"
     )
     expect(
+        EditDirection.loosens(group: youtubeGroup, from: locked, to: switched, onDay: day),
+        "and so is switching where it comes from"
+    )
+    expect(
         !EditDirection.loosens(group: youtubeGroup, from: locked, to: locked, onDay: day),
         "leaving it alone moves nothing"
+    )
+}
+
+/// Changing what opens a group that opens with the settings passcode is a loosening of that
+/// group, wherever the change is made. Setting one where there is none is not: it is the only way
+/// such a group can be opened again.
+private func testChangingTheSettingsPasscodeLoosensTheGroupsThatOpenWithIt() {
+    let day = "2026-08-10"
+    var relying = webConfig()
+    relying.groupSettings[youtubeGroup]?.accessPassword = .settingsPasscode
+    var coded = relying
+    coded.settingsLock.passcode = PasscodeHash.make("2468")
+    var recoded = coded
+    recoded.settingsLock.passcode = PasscodeHash.make("1357")
+    expect(
+        EditDirection.loosens(group: youtubeGroup, from: coded, to: recoded, onDay: day),
+        "changing the settings passcode loosens the group that opens with it"
+    )
+    expect(
+        EditDirection.loosens(group: youtubeGroup, from: coded, to: relying, onDay: day),
+        "and so does removing it"
+    )
+    expect(
+        !EditDirection.loosens(group: youtubeGroup, from: relying, to: coded, onDay: day),
+        "setting one where there was none does not"
+    )
+    var plain = coded
+    plain.groupSettings[youtubeGroup]?.accessPassword = nil
+    var plainRecoded = plain
+    plainRecoded.settingsLock.passcode = PasscodeHash.make("1357")
+    expect(
+        !EditDirection.loosens(group: youtubeGroup, from: plain, to: plainRecoded, onDay: day),
+        "a group that does not open with it does not care"
     )
 }

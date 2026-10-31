@@ -169,9 +169,9 @@ public final class RulesEngine {
         // **Unless the group has opted out of it.** A group set to ignore the pass is left exactly
         // where it was: the hour runs, every other group opens, and this one goes on being judged
         // by everything below — the focus session, its own week, its budget. The pass is not spent
-        // any less for it; what changes is only how far it reaches. See
-        // `GroupSettings.ignoresAppWideUnblocks`.
-        if activeEmergencyPassEnd != nil, !managed.settings.ignoresAppWideUnblocks {
+        // any less for it; what changes is only how far it reaches. A password group is opted out
+        // by its password. See `GroupSettings.shutsOutAppWideUnblocks`.
+        if activeEmergencyPassEnd != nil, !managed.settings.shutsOutAppWideUnblocks {
             return .notManaged
         }
         if let endsAt = activeFocusSessionEnd {
@@ -190,7 +190,7 @@ public final class RulesEngine {
         // group falls through to everything below rather than out, so its dated block, its week and
         // its budget go on judging it, and the break itself is granted and runs its full length for
         // every other group.
-        if activeProtectionPauseEnd != nil, !managed.settings.ignoresAppWideUnblocks {
+        if activeProtectionPauseEnd != nil, !managed.settings.shutsOutAppWideUnblocks {
             return .notManaged
         }
         // Above the week, both kinds of it — see `datedBlock(_:)`.

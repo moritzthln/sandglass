@@ -257,6 +257,9 @@ struct ProtectionCard: View {
     /// Why the keep-alive switch did not take. Held by the view, like every refusal on this
     /// screen: it describes one click rather than a state of the app.
     @State private var keepAliveProblem: String?
+    /// Whether the sheet asking for a password group's password is up — the one thing switching
+    /// the keep-alive off owes besides the settings lock.
+    @State private var askingForPassword = false
 
     var body: some View {
         SettingsCard("Protection") {
@@ -288,6 +291,31 @@ struct ProtectionCard: View {
             Divider().overlay(Palette.hairline).padding(.vertical, 6)
             ClockGuardRow(appState: appState)
         }
+        .sheet(isPresented: $askingForPassword) { passwordSheet }
+    }
+
+    /// A password group's password, asked before the agent that brings Sandglass back is switched
+    /// off. Any one of them will do — see `AppState.leavingRefusal(typed:)`.
+    private var passwordSheet: some View {
+        VStack(spacing: 14) {
+            Text("Enter a group's password").font(.headline)
+            Text("A group opens only with a password, and turning this off would stop it.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            AccessPasswordField { typed in
+                let refusal = appState.setKeepAlive(
+                    false, requiring: .settingsWindow, accessPassword: typed
+                )
+                if refusal == nil { askingForPassword = false }
+                return refusal
+            }
+            Button("Cancel", role: .cancel) { askingForPassword = false }
+                .keyboardShortcut(.cancelAction)
+        }
+        .multilineTextAlignment(.center)
+        .padding(24)
+        .frame(width: 340)
     }
 
     /// The popover's own sentence, which is the point: two screens answering "is this on right
@@ -315,7 +343,16 @@ struct ProtectionCard: View {
     private var keepAlive: Binding<Bool> {
         Binding(
             get: { appState.keepAliveEnabled },
-            set: { keepAliveProblem = appState.setKeepAlive($0, requiring: .settingsWindow) }
+            set: { isOn in
+                // The settings lock is asked first, as it always was; only a switch-off it lets
+                // through goes on to ask for a group's password.
+                if !isOn, appState.leavingNeedsAccessPassword,
+                   appState.lockRefusalForKeepAlive == nil {
+                    askingForPassword = true
+                    return
+                }
+                keepAliveProblem = appState.setKeepAlive(isOn, requiring: .settingsWindow)
+            }
         )
     }
 }

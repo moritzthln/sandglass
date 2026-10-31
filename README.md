@@ -67,7 +67,7 @@ What you get that the table can't show:
   `reddit.com/r/` but not the rest of Reddit. Exceptions carve out a place, so a URL with the
   allowed name in its path can't sneak through.
 - **Strict when you ask for it.** Weekly time windows, *block until a day*, a settings lock and a
-  passcode — per group or for everything. A lock holds loosening only, so you can always make a
+  passcode — per group or for everything — and groups that open only with a password. A lock holds loosening only, so you can always make a
   rule stricter, even mid-block.
 - **Hard to wriggle out of, impossible to get trapped in.** Quitting is undone within seconds,
   the system clock can't be wound forward to end a block, and revoking a permission during a hard
@@ -104,6 +104,22 @@ button is an ordinary link back to the page you wanted. Other tabs are untouched
 <img alt="The 'Block until a day' sheet with a calendar and the button 'Blocked until Friday, 2 October'." src="assets/dated-block.png" width="400">
 
 Shut a group until a date, for a week of exams or a holiday. The block ends when that day begins.
+
+### Open only with a password
+
+Give a group a password and everything in it stays blocked until the password is typed: no
+pause, no opens, no cooldown. The password is either the settings passcode (change it in Settings
+and it changes here) or one you set for the group alone. A correct password opens the group for
+its open length (30 minutes if it has none), and then it locks again. On a website the block page
+offers an **Enter password** button, and Sandglass asks in a small window of its own, so the
+password never lands in the address bar or the browser's history; for an app the pause screen has
+the field. Five wrong tries in a row mean a one-minute wait. Strict windows, a date you set and
+"Block everything" still win.
+
+The same password guards the ways around it: the group's settings sit behind it, "Unblock
+everything", the emergency pass and the forgotten-passcode hour do not open the group, and turning
+off "Start at login and keep running" asks for it. It is a household lock, not a security
+boundary: anyone with an administrator account can still remove the app.
 
 ### Settings and locks
 

@@ -86,10 +86,12 @@ private struct SettingsFooter: View {
     /// installed. A rule the reader has to work out does not apply to them is worse than no rule.
     private var quitLine: String {
         let base = "Quitting always works — during a strict window, during a focus session, whenever. Logging out or restarting your Mac is never held up either."
-        guard appState.keepAliveEnabled, appState.config.settingsLock.passcode != nil else {
-            return base
-        }
-        return "\(base) Quitting for good means turning off “Start at login and keep running”, which asks for your passcode."
+        let asks = [
+            appState.config.settingsLock.passcode != nil ? "your passcode" : nil,
+            appState.leavingNeedsAccessPassword ? "the password of a group that opens only with one" : nil,
+        ].compactMap { $0 }
+        guard appState.keepAliveEnabled, !asks.isEmpty else { return base }
+        return "\(base) Quitting for good means turning off “Start at login and keep running”, which asks for \(asks.joined(separator: " and "))."
     }
 
 }

@@ -318,8 +318,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             show(NSAlert.keepAliveStillOn("It needs the settings passcode, and it was not entered."))
             return .terminateCancel
         }
+        // Then a password group's password, for the same reason and in the same way: asked here,
+        // enforced by `setKeepAlive`, remembered nowhere.
+        guard let password = askForAccessPassword(appState) else {
+            show(NSAlert.keepAliveStillOn("It needs a group's password, and it was not entered."))
+            return .terminateCancel
+        }
         let refusal = appState.setKeepAlive(
-            false, requiring: .deliberateAction, passcode: typed
+            false, requiring: .deliberateAction, passcode: typed, accessPassword: password
         )
         guard let refusal else { return .terminateNow }
         show(NSAlert.keepAliveStillOn(refusal))
@@ -332,6 +338,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Not the enforcement, which is `AppState.setKeepAlive(_:requiring:passcode:)` and stays
     /// there. This is only the way to satisfy it, put where the friction is felt — and it hands
     /// the answer over rather than unlocking with it, so the next quit asks again.
+    /// A password group's password for this one quit, or `nil` when the dialogue was dismissed.
+    /// Empty when no group opens only with a password.
+    private func askForAccessPassword(_ appState: AppState) -> String? {
+        guard appState.leavingNeedsAccessPassword else { return "" }
+        let (alert, field) = NSAlert.accessPasswordForKeepAlive()
+        guard show(alert) == .alertFirstButtonReturn else { return nil }
+        return field.stringValue
+    }
+
     private func askForPasscode(_ appState: AppState) -> String? {
         guard appState.standaloneActionNeedsPasscode else { return "" }
         let (alert, field) = NSAlert.passcodeForKeepAlive()

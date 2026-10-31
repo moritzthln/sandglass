@@ -118,7 +118,11 @@ extension AppState {
     /// happen to end in the same second must not cost two writes and two rollback chances.
     func expirePasscodeResetIfDue() {
         var newConfig = config
-        var due = newConfig.settingsLock.clearForgottenPasscode(at: reading)
+        // Not while a group opens with it: the hour recovers the settings, and clearing the one
+        // secret that opens that group would hand it to whoever sets the next one. See
+        // `SettingsDoor`, which offers no hour in that case.
+        var due = !config.opensAGroupWithSettingsPasscode
+            && newConfig.settingsLock.clearForgottenPasscode(at: reading)
         for groupID in newConfig.groupSettings.keys {
             guard newConfig.groupSettings[groupID]?.clearForgottenPasscode(at: reading) == true
             else { continue }
@@ -166,11 +170,62 @@ extension AppState {
 
     /// Try one group's passcode. `true` opens that group's page for the rest of this visit — and,
     /// for a group that also carries a wait, starts that wait counting from this second.
+    ///
+    /// For a group that opens only with a password, the password is the door and it is checked
+    /// through the engine's counter, so the door is no way around the wait five wrong ones earn.
     public func unlockGroup(_ groupID: String, passcode: String) -> Bool {
-        guard visit.accept(passcode: passcode, forGroup: groupID, in: config, at: reading)
-        else { return false }
+        if config.settings(forGroup: groupID)?.accessPassword != nil {
+            guard ledger.verifyAccessPassword(passcode, groupID: groupID) == nil else { return false }
+            visit.markAnswered(forGroup: groupID, at: reading)
+        } else {
+            guard visit.accept(passcode: passcode, forGroup: groupID, in: config, at: reading)
+            else { return false }
+        }
         finishMutation()
         return true
+    }
+
+    // MARK: - Leaving
+
+    /// Whether switching off "Start at login and keep running" asks for a group's password.
+    public var leavingNeedsAccessPassword: Bool { !config.passwordGroups.isEmpty }
+
+    /// What the settings lock says about switching the keep-alive off from the settings window,
+    /// asked before the password sheet goes up so a refused switch-off is not asked twice.
+    public var lockRefusalForKeepAlive: String? { lockRefusal(.settingsWindow) }
+
+    /// Why switching the keep-alive off is refused, or `nil` when it may go.
+    ///
+    /// The agent is what brings Sandglass back, so switching it off is the one way to stop every
+    /// block at once — a password group whose password that did not ask for would be undone by a
+    /// quit. **Any one** password group's password is enough: each of them is somebody who may
+    /// open its group, and the app stopping is no more than each could do to its own. Every group
+    /// is tried through the engine's counter, so this is no faster a way to guess than the prompt.
+    /// The emergency pass does not lift it, for the reason it does not open a password group.
+    func leavingRefusal(typed: String?) -> String? {
+        let groups = config.passwordGroups
+        guard !groups.isEmpty else { return nil }
+        guard let typed, !typed.isEmpty else { return Self.leavingNeedsPassword }
+        var last: AccessAttempt?
+        for groupID in groups {
+            guard let failed = ledger.verifyAccessPassword(typed, groupID: groupID) else { return nil }
+            last = failed
+        }
+        return last.flatMap(AccessCopy.problem(after:)) ?? Self.leavingNeedsPassword
+    }
+
+    static let leavingNeedsPassword =
+        "Turning this off needs the password of a group that opens only with one."
+
+    /// What a password group's door says after a refused try, when something other than a
+    /// plain miss refused it: the wait, or a settings passcode that is not there to match.
+    public func accessDoorProblem(forGroup groupID: String) -> String? {
+        if let seconds = ledger.accessWaitSeconds(groupID: groupID) {
+            return AccessCopy.lockedOut(seconds: seconds)
+        }
+        let reliesOnMissingPasscode = config.settings(forGroup: groupID)?.accessPassword
+            == .settingsPasscode && config.settingsLock.passcode == nil
+        return reliesOnMissingPasscode ? AccessCopy.noSettingsPasscode : nil
     }
 
     /// Start, or call off, the hour that clears one group's forgotten passcode. `nil` means it

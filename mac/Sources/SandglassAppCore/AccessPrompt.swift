@@ -48,12 +48,19 @@ public enum AccessCopy {
             return "That password doesn't match."
         case .lockedOut(let seconds):
             return lockedOut(seconds: seconds)
+        case .noSettingsPasscode:
+            return noSettingsPasscode
         case .refused(.blocked(_, let untilText)):
             return untilText
         case .refused:
             return nil
         }
     }
+
+    /// A group that opens with the settings passcode while none is set. Setting one again is the
+    /// way back — see `EditDirection`, which lets exactly that through.
+    public static let noSettingsPasscode =
+        "This group opens with the settings passcode, and none is set. Set one in Settings → Settings lock."
 
     public static func lockedOut(seconds: Int) -> String {
         "Too many tries. Try again in \(SettingsLockGate.countdownText(seconds))."

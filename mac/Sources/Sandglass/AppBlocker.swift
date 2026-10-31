@@ -462,7 +462,7 @@ final class AppBlocker: BlockerControlling {
             if !present(decision, info: displayInfo(of: subject, in: appState), for: subject) {
                 letThrough(subject)
             }
-        case .wrong, .lockedOut:
+        case .wrong, .lockedOut, .noSettingsPasscode:
             break
         }
         return AccessCopy.problem(after: attempt)
@@ -622,7 +622,7 @@ extension AppBlocker: PageBlockerHost {
             passwordPanel.close()
             browser.activate()
             return nil
-        case .wrong, .lockedOut, .refused:
+        case .wrong, .lockedOut, .noSettingsPasscode, .refused:
             return AccessCopy.problem(after: attempt)
         }
     }

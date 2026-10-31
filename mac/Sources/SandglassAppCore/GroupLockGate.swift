@@ -62,6 +62,8 @@ public struct GroupLockGate: Equatable {
     public enum Refusal: Equatable {
         case timer(secondsLeft: Int)
         case passcode
+        /// The group opens only with a password, and that password is its door. See `hasDoor`.
+        case accessPassword
 
         public func text(groupNamed name: String) -> String {
             switch self {
@@ -69,6 +71,8 @@ public struct GroupLockGate: Equatable {
                 return "Held by the lock on \(name)"
             case .passcode:
                 return "Enter the passcode for \(name) to change it"
+            case .accessPassword:
+                return "Enter the password for \(name) to change it"
             }
         }
     }
@@ -163,12 +167,23 @@ public struct GroupLockGate: Equatable {
     /// **once**: a second right answer during the same visit must not push the countdown forward,
     /// or somebody could hold a group open by retyping the code. There is nothing on screen that
     /// asks twice, which is exactly why the guard belongs here rather than in the caller.
+    ///
+    /// A group with an access password accepts nothing here, its own passcode included: its door
+    /// is that password, which is checked by the engine's counter and answered through
+    /// `markAnswered` — see `hasDoor`.
     public mutating func accept(
         passcode: String, forGroup groupID: String, settings: GroupSettings, at reading: ClockReading
     ) -> Bool {
-        guard let stored = settings.passcode, stored.matches(passcode) else { return false }
-        if answeredAt[groupID] == nil { answeredAt[groupID] = reading }
+        guard settings.accessPassword == nil, let stored = settings.passcode,
+              stored.matches(passcode) else { return false }
+        markAnswered(forGroup: groupID, at: reading)
         return true
+    }
+
+    /// This group's door was answered by a password checked elsewhere. Once per visit, for the
+    /// reason `accept` keeps the first reading only.
+    public mutating func markAnswered(forGroup groupID: String, at reading: ClockReading) {
+        if answeredAt[groupID] == nil { answeredAt[groupID] = reading }
     }
 
     // MARK: - What it refuses
@@ -198,7 +213,8 @@ public struct GroupLockGate: Equatable {
         if let secondsLeft = timerSecondsLeft(for: settings, groupID: groupID, at: now) {
             return .timer(secondsLeft: secondsLeft)
         }
-        return passcodeRequired(for: settings, groupID: groupID) ? .passcode : nil
+        guard passcodeRequired(for: settings, groupID: groupID) else { return nil }
+        return settings.accessPassword != nil ? .accessPassword : .passcode
     }
 
     /// Everything one group's editor shows about its own lock, in one value.
@@ -212,7 +228,9 @@ public struct GroupLockGate: Equatable {
                 ? nil : timerSecondsLeft(for: settings, groupID: groupID, at: now),
             passcodeRequired: lifted
                 ? false : passcodeRequired(for: settings, groupID: groupID),
-            resetSeconds: settings.passcodeForgotSecondsLeft(at: now)
+            // A password group's door is its password, which no hour clears.
+            resetSeconds: settings.accessPassword == nil
+                ? settings.passcodeForgotSecondsLeft(at: now) : nil
         )
     }
 
@@ -250,7 +268,7 @@ public struct GroupLockGate: Equatable {
     /// takes it away. That is what keeps this from being a trap — see
     /// `GroupSettings.ignoresAppWideUnblocks`.
     private func lifted(by emergencyPassRunning: Bool, for settings: GroupSettings) -> Bool {
-        emergencyPassRunning && !settings.ignoresAppWideUnblocks
+        emergencyPassRunning && !settings.shutsOutAppWideUnblocks
     }
 
     /// Seconds this group's own timer still holds it for, or `nil` when it is off or has run out.
@@ -309,11 +327,22 @@ public struct GroupLockGate: Equatable {
     /// instead.
     private func countsFrom(_ settings: GroupSettings, groupID: String) -> ClockReading? {
         if let armedAt = armedAt[groupID] { return armedAt }
-        guard settings.passcode != nil else { return openedAt }
+        guard hasDoor(settings) else { return openedAt }
         return answeredAt[groupID]
     }
 
     private func passcodeRequired(for settings: GroupSettings, groupID: String) -> Bool {
-        settings.passcode != nil && answeredAt[groupID] == nil
+        hasDoor(settings) && answeredAt[groupID] == nil
+    }
+
+    /// Whether the group's page is shut until a secret is entered: its own passcode, **or the
+    /// password it opens with**. The second is the same door rather than a parallel one, because
+    /// a password that opened the site but not its settings would be two clicks from switched off:
+    /// every loosening edit to the group — the password itself, its targets, its windows, the
+    /// switch, the bin — is held until the password is entered, and tightening goes through as it
+    /// always has. Where a group has both, the password is the door: the passcode's forgot hour
+    /// must not be a way around it.
+    private func hasDoor(_ settings: GroupSettings) -> Bool {
+        settings.passcode != nil || settings.accessPassword != nil
     }
 }

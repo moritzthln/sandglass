@@ -124,6 +124,16 @@ struct OpenLedger {
         return result
     }
 
+    /// Check a group's access password without opening anything. `nil` means it matched.
+    func verifyAccessPassword(_ password: String, groupID: String) -> AccessAttempt? {
+        engine.verifyAccessPassword(password, groupID: groupID)
+    }
+
+    /// Seconds before this group checks a password again, or `nil`.
+    func accessWaitSeconds(groupID: String) -> Int? {
+        engine.accessWaitSeconds(groupID: groupID)
+    }
+
     // MARK: - The log
 
     // Best-effort by design: `Store.appendEvent` cannot fail loudly, because no statistic is

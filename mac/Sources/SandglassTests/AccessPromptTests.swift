@@ -93,7 +93,7 @@ private func testTheLineUnderTheField() {
 
 private func testPresetsKeepThePasswordAndCopiesDoNot() {
     var config = webConfig(settings: .standard)
-    config.groupSettings[youtubeGroup]?.accessPassword = PasscodeHash.make(password)
+    config.groupSettings[youtubeGroup]?.accessPassword = PasscodeHash.make(password).map(AccessPassword.custom)
     guard let current = config.settings(forGroup: youtubeGroup) else { return failTest("no group") }
     let strict = config.presets.first { $0.id == NamedPreset.strictID }
     expect(
@@ -114,7 +114,7 @@ private func testPresetsKeepThePasswordAndCopiesDoNot() {
 private func testThePasswordTypedThroughTheAppOpensThePage() {
     withTempDir { dir in
         var settings = GroupSettings.standard
-        settings.accessPassword = PasscodeHash.make(password)
+        settings.accessPassword = PasscodeHash.make(password).map(AccessPassword.custom)
         try? Store(directory: dir).saveConfig(webConfig(settings: settings))
         let blocker = RecordingBlocker()
         let state = makeState(dir, clock: FakeClock(noon), blocker: blocker)
