@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-05
+
 ### Fixed
 
 - A video playing inside a search page is blocked like the video itself. Google's video results
@@ -65,6 +67,7 @@ First public release.
 - Stats page from a local event log.
 - All data on-device in `~/Library/Application Support/Sandglass`.
 
-[Unreleased]: https://github.com/moritzthln/sandglass/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/moritzthln/sandglass/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/moritzthln/sandglass/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/moritzthln/sandglass/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/moritzthln/sandglass/releases/tag/v1.0.1
