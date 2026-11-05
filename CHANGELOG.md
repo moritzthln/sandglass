@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A video playing inside a search page is blocked like the video itself. Google's video results
+  play YouTube clips in an overlay on `google.com/search`, and DuckDuckGo's do the same, so the
+  tab never visited `youtube.com` and a YouTube block let the video play. The overlay's address
+  now counts as the YouTube video, and after an unlock the tab comes back to the search.
+
 ## [1.1.0] - 2026-10-31
 
 ### Added

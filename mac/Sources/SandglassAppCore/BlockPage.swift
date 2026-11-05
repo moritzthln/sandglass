@@ -171,9 +171,12 @@ public enum BlockPage {
     /// puts the password in the address bar of the block page and in the browser's own history,
     /// twice over. `target` loses them to `RuleMatcher.normalize` on the way in; this is the one
     /// field that keeps the address whole, so it is the one place they have to be taken out.
+    /// A video playing inside a search page names the same page as the video it plays — see
+    /// `EmbeddedVideo` — so the tab comes home to the search it was interrupted on.
     public static func opening(from address: String?, target: String) -> String {
         if let address, isWebAddress(address),
-           RuleMatcher.normalize(url: address) == RuleMatcher.normalize(url: target) {
+           RuleMatcher.normalize(url: EmbeddedVideo.unwrapped(address))
+            == RuleMatcher.normalize(url: target) {
             return withoutCredentials(address)
         }
         return isWebAddress(target) ? target : "https://" + target

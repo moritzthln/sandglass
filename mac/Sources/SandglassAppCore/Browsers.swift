@@ -299,10 +299,14 @@ public enum BrowserAddress {
     ///
     /// A trailing dot needs no guard of its own: `RuleMatcher` strips it, because a fully
     /// qualified `youtube.com.` is the same site as `youtube.com` and has to match the same rule.
+    ///
+    /// **A video a search engine plays in its own page is read as the video's address** — see
+    /// `EmbeddedVideo`. It has to happen here, before normalizing, because the fragment and the
+    /// query that say which video it is are what normalizing drops.
     public static func page(from text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains(" ") else { return nil }
-        let normalized = RuleMatcher.normalize(url: trimmed)
+        let normalized = RuleMatcher.normalize(url: EmbeddedVideo.unwrapped(trimmed))
         let host = RuleMatcher.host(of: normalized)
         guard host.contains("."), !host.hasPrefix(".") else { return nil }
         return normalized
