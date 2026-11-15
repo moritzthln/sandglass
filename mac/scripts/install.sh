@@ -34,6 +34,8 @@ DESTINATION="/Applications/Sandglass.app"
 # A dot-prefixed sibling of the destination: same filesystem, so the swap is a rename, and
 # hidden so a half-copied bundle never shows up in Finder or Spotlight.
 STAGING="/Applications/.Sandglass.app.incoming"
+# Where the copy being replaced waits until the new one is in place, for the same two reasons.
+PREVIOUS="/Applications/.Sandglass.app.previous"
 AGENT_SERVICE="gui/$(id -u)/io.github.moritzthln.sandglass.agent"
 # The app's previous name. Its KeepAlive agent names /Applications/AppBlock.app, and if it stays
 # loaded launchd starts the old app beside this one every time it stops — forever. The app retires
@@ -94,6 +96,16 @@ if [ ! -w /Applications ]; then
 fi
 
 echo "== installing to $DESTINATION =="
+# From the bootout below until the app is started again, nothing is blocking anything. Every way
+# out of this script before that point says so, so a failure is never mistaken for a finished
+# install with protection still on.
+PROTECTION_BACK=0
+warn_if_protection_is_off() {
+  [ "$PROTECTION_BACK" = "1" ] && return
+  echo "WARNING: Sandglass is not running and its keep-alive agent is released, so protection is OFF." >&2
+  echo "         Open $DESTINATION, or run this script again, to turn it back on." >&2
+}
+trap warn_if_protection_is_off EXIT
 # Before the quit, not after: booting the agent out is usually what ends the process, since
 # launchd is the thing running it. The quit below then finds nothing left to do, and only earns
 # its keep for a copy somebody started by hand.
@@ -106,10 +118,20 @@ rm -rf "$STAGING"
 # intact, which a plain copy can quietly drop.
 ditto "$BUILT" "$STAGING"
 
-# The one moment the destination does not exist. Nothing is watching it: the agent was booted out
-# above, so no restart can land in the gap and find half a bundle.
-rm -rf "$DESTINATION"
-mv "$STAGING" "$DESTINATION"
+# The old copy is moved aside rather than deleted, so a swap that fails puts it straight back
+# instead of leaving no app at all. The one moment the destination does not exist is between
+# two renames on one filesystem, and nothing is watching it: the agent was booted out above.
+rm -rf "$PREVIOUS"
+[ ! -d "$DESTINATION" ] || mv "$DESTINATION" "$PREVIOUS"
+if ! mv "$STAGING" "$DESTINATION"; then
+  echo "FAIL: couldn't move the new copy into $DESTINATION." >&2
+  if [ -d "$PREVIOUS" ] && mv "$PREVIOUS" "$DESTINATION"; then
+    echo "   the previous copy is back in place; starting it again" >&2
+    open -a "$DESTINATION" && PROTECTION_BACK=1
+  fi
+  exit 1
+fi
+rm -rf "$PREVIOUS"
 echo "   installed"
 
 # Belt and braces. Nothing should be running — the agent is released and the app was quit — but a
@@ -118,6 +140,7 @@ quit_running_sandglass
 
 echo "== starting =="
 open -a "$DESTINATION"
+PROTECTION_BACK=1
 
 cat <<'NEXT'
 

@@ -247,7 +247,10 @@ safe, and enough: the point is the pause, not punishment.
 
 **Can I get around it?**
 Yes, with effort, and that is by design. You can quit it from the menu, turn off the agent,
-revoke Accessibility, or run `launchctl bootout`. Sandglass adds friction to the impulsive
+revoke Accessibility, or run `launchctl bootout`. A plain `kill` (SIGTERM) from Terminal also
+ends the app at once, without the quit dialog, its passcode or a group's password (the
+keep-alive agent starts it again unless it was booted out first); the install script relies on
+that. Sandglass adds friction to the impulsive
 route; it does not try to win against a determined administrator of their own Mac. (Revoking
 Accessibility during a hard block makes things stricter, not looser: the affected apps and
 browsers are hidden whole until the permission is back.)

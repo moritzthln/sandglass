@@ -98,7 +98,11 @@ extension AppState {
     /// The web counterpart of `ledger.recordSecond(inFrontmost:)`, and deliberately not finishing
     /// the mutation either: `pollFrontmostPage` runs inside `tick`, whose own `finishMutation`
     /// covers whatever this second changed — including the daily limit it may have just reached.
+    ///
+    /// **One second is charged to a group once.** A browser can also be listed as an app, and
+    /// the tick has then already charged its group this second; a page of the same group would
+    /// count it twice. A page of another group is that group's second as well, and is charged.
     public func recordPageSecond(forURL url: String) {
-        ledger.recordSecond(onPage: url)
+        ledger.recordSecond(onPage: url, unless: chargedThisTick)
     }
 }

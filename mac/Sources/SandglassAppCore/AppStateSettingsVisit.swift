@@ -129,7 +129,12 @@ extension AppState {
     ///
     /// One edit for however many are due, because one edit is what the disk takes: two hours that
     /// happen to end in the same second must not cost two writes and two rollback chances.
+    ///
+    /// **A write the disk refused is retried once a minute, not once a second.** The rollback
+    /// leaves the hour due, and each try is a write, a recheck of the frontmost app and an Apple
+    /// event to a parked tab; a full disk turned that into the loop's whole second.
     func expirePasscodeResetIfDue() {
+        if let retryAt = passcodeResetRetryAt, clock.now < retryAt { return }
         var newConfig = config
         // Not while a group opens with it: the hour recovers the settings, and clearing the one
         // secret that opens that group would hand it to whoever sets the next one. See
@@ -142,7 +147,7 @@ extension AppState {
             due = true
         }
         guard due else { return }
-        saveEdit(newConfig)
+        passcodeResetRetryAt = saveEdit(newConfig) == nil ? nil : clock.now.addingTimeInterval(60)
     }
 
     // MARK: - One group's own lock

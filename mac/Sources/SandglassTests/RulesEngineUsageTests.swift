@@ -11,7 +11,7 @@ func runEngineUsageTests() {
     testUsageIgnoresNothingAndNonsense()
     testUsageResetsWithTheDay()
     testUsageOfARemovedGroupIsDropped()
-    testUsageIsCountedInsideAGroupsOwnBreakWindow()
+    testUsageIsNotCountedInsideAGroupsOwnBreakWindow()
     testTimeLimitBlocksOnceItIsReached()
     testTimeLimitEndsTheRunningSession()
     testTimeLimitOutranksSessionCooldownAndBudget()
@@ -102,14 +102,13 @@ private func testUsageOfARemovedGroupIsDropped() {
 /// and daytime breaks therefore accrues the whole day's usage while being, by its own schedule, not
 /// managed at all.
 ///
-/// **This is worth a decision rather than a test, and the test is here to make sure the decision is
-/// taken deliberately.** The reasoning `OpenLedger.recordSecond` gives for counting through a lift
+/// **The decision has been taken: a group's own break window charges nothing.** The reasoning `OpenLedger.recordSecond` gives for counting through a lift
 /// — "a daily limit that shrinks after a break spent scrolling is the limit working" — is about the
 /// app-wide break and the emergency pass, which are holes somebody punched in a schedule on
 /// purpose. A group's own break window is not that: it is the group's schedule saying these hours
-/// are none of my business. Counting them is at best arguable, and it is why the sidebar had a
-/// number to draw at all. What has been fixed is only the drawing — see `GroupSummary.today`.
-private func testUsageIsCountedInsideAGroupsOwnBreakWindow() {
+/// are none of my business, so its seconds are not the group's usage either. The app-wide break
+/// and the pass still count, as before.
+private func testUsageIsNotCountedInsideAGroupsOwnBreakWindow() {
     let clock = FakeClock(august(10, 10))   // Monday, inside the daytime break
     let nights = strictWindow(weekdays: TimeWindow.everyDay, from: 22 * 60, to: 8 * 60)
     let days = window(.break, weekdays: TimeWindow.everyDay, from: 8 * 60, to: 22 * 60)
@@ -125,8 +124,8 @@ private func testUsageIsCountedInsideAGroupsOwnBreakWindow() {
 
     engine.recordUsage(groupID: youtubeGroup, seconds: 277 * 60)
     expectEqual(
-        engine.state.usageSecondsToday[youtubeGroup], 277 * 60,
-        "and the seconds are charged to it anyway — which is where the card's number came from"
+        engine.state.usageSecondsToday[youtubeGroup], nil,
+        "and the seconds are no longer charged to it, which is where the card's number came from"
     )
     expectEqual(
         engine.decision(targetID: target.id), .notManaged,

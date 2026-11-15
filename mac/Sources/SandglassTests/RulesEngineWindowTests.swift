@@ -189,11 +189,11 @@ private func testABreakWindowSpendsNothing() {
     )
 }
 
-/// The same treatment the protection pause gets: the seconds are still counted, because the
-/// stats are a record of what happened — but nothing is enforced against them while the group
-/// is deliberately open.
+/// A limit already blown before the break is not enforced while the group is deliberately open,
+/// and lands again the moment the break closes. The break's own seconds are not charged: the
+/// group's schedule says these hours are none of its business, so they are not its usage either.
 private func testABreakWindowDoesNotEnforceTheTimeLimit() {
-    let clock = FakeClock(august(10, 12))
+    let clock = FakeClock(august(10, 10))
     var settings = standardSettings(windows: [
         window(.break, weekdays: TimeWindow.workWeek, from: 11 * 60, to: 13 * 60),
     ])
@@ -201,9 +201,11 @@ private func testABreakWindowDoesNotEnforceTheTimeLimit() {
     let (engine, target) = makeEngine(settings: settings, clock: clock)
 
     engine.recordUsage(groupID: youtubeGroup, seconds: 45 * 60)
+    clock.now = august(10, 12)
+    engine.recordUsage(groupID: youtubeGroup, seconds: 60 * 60)
     expectEqual(
         engine.statsSnapshot().usageSecondsToday[youtubeGroup], 45 * 60,
-        "time spent inside a break is still counted for the stats"
+        "the morning's time is counted, and the hour inside the break is not"
     )
     expectEqual(
         engine.decision(targetID: target.id), .notManaged,

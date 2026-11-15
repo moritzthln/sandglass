@@ -24,7 +24,9 @@ public struct WebMatch: Equatable, Sendable {
 /// Rules and plain domain targets both decide, and they are read in order of how deliberate a
 /// statement each one is:
 ///
-/// 1. **An explicit `block` rule**, from any group — the most specific thing anybody wrote.
+/// 1. **An explicit `block` rule**, from any group — the most specific thing anybody wrote. When
+///    several groups have one, they are read the way one group reads its own list: high priority
+///    first, then a page before a text match, and only then the group order below.
 /// 2. **A domain target or a live category**, unless the group owning it also wrote an `allow`
 ///    for this URL. That exception is the headline case: block `youtube.com`, allow
 ///    `music.youtube.com`. Which of the two claims wins is decided by specificity — see
@@ -133,7 +135,9 @@ public enum WebResolver {
             else { continue }
             if rule.action == .allow {
                 verdicts.allowed.insert(groupID)
-            } else if verdicts.block == nil {
+            } else if verdicts.block.map({
+                RuleMatcher.standing(of: rule) < RuleMatcher.standing(of: $0.rule)
+            }) ?? true {
                 verdicts.block = Claim(groupID: groupID, rule: rule)
             }
         }

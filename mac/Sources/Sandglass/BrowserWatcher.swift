@@ -59,8 +59,16 @@ final class BrowserWatcher {
         let tabID: String?
         let known: KnownBrowser
         let running: NSRunningApplication
+        /// Which way the address was read. Only an AppleScript reading is spelled the way the
+        /// browser's own `URL of` spells it, which is what a guarded navigation compares against.
+        let readBy: KnownBrowser.Strategy
 
         var bundleID: String { known.bundleID }
+
+        /// The address a navigation of this tab checks before it moves it, or `nil` when the
+        /// reading came off the accessibility tree and would never match. See
+        /// `KnownBrowser.navigationScriptSource(to:ifShowing:tabID:)`.
+        var guardAddress: String? { readBy == .appleScript ? address : nil }
 
         /// The tab, as everything that keys by one wants it. A wait belongs to the tab that served
         /// it rather than to an address, so this is what the ledger and the settle window are
@@ -160,7 +168,10 @@ final class BrowserWatcher {
             case .address(let text, let tabID):
                 note(success: strategy, of: browser)
                 return BrowserAddress.sighting(from: text, blockPage: Self.blockPage).map {
-                    Page(sighting: $0, address: text, tabID: tabID, known: browser, running: app)
+                    Page(
+                        sighting: $0, address: text, tabID: tabID, known: browser, running: app,
+                        readBy: strategy
+                    )
                 }
             case .unavailable:
                 // The browser answered and there is nothing to read: no window, a blank tab. The

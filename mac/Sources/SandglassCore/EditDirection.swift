@@ -29,7 +29,8 @@ public enum EditDirection {
     /// The globals first, because they are the cheap half and because a switch that reaches every
     /// group at once is the one worth refusing before any group is looked at. Then every group the
     /// current configuration knows: a group that exists only in `proposed` was not there a moment
-    /// ago, so there is nothing it could be handing back.
+    /// ago, so there is nothing it could be handing back — what it takes from a group that was
+    /// there is that group's loosening, and is asked of that group.
     ///
     /// `today` is the day this moment is in, as `DatedBlock` spells one. The **one** thing here
     /// that depends on when it is asked: every other field means the same thing whenever it is
@@ -46,12 +47,14 @@ public enum EditDirection {
     /// Whether this edit hands anything back about **one group** — what that group's own lock is
     /// asked.
     ///
-    /// Three comparisons, and the third is the one that is easy to miss. The settings themselves;
-    /// the targets that name the group, where a **superset** passes because one more site inside a
-    /// locked group is one more thing blocked; and what the group's live categories actually
-    /// carry, with its own exceptions applied — a membership is an id, and comparing ids says
-    /// nothing about what they point at, so emptying a list the group has ticked would otherwise
-    /// lift every block it held through one.
+    /// Four comparisons, and the last two are the ones that are easy to miss. The settings
+    /// themselves; the targets that name the group, where a **superset** passes because one more
+    /// site inside a locked group is one more thing blocked; what the group's live categories
+    /// actually carry, with its own exceptions applied — a membership is an id, and comparing ids
+    /// says nothing about what they point at, so emptying a list the group has ticked would
+    /// otherwise lift every block it held through one; and who holds the group's sites and apps
+    /// after the edit, which another group can change without touching this one — see
+    /// `handsAway(group:from:to:onDay:)`.
     ///
     /// A group the edit **deletes** loosens by definition: a missing group is not a stricter one.
     public static func loosens(
@@ -67,6 +70,7 @@ public enum EditDirection {
            proposed.settingsLock.passcode != current.settingsLock.passcode {
             return true
         }
+        if handsAway(group: groupID, from: current, to: proposed, onDay: today) { return true }
         return !(settingsHold(after, against: before, onDay: today)
             && targetIDs(inGroup: groupID, of: proposed)
                 .isSuperset(of: targetIDs(inGroup: groupID, of: current))
@@ -97,6 +101,24 @@ public enum EditDirection {
             && rulesHold(after.rules, against: before.rules)
             && windowsHold(after.timeWindows, against: before.timeWindows)
             && datedBlockHolds(after, against: before, onDay: today)
+    }
+
+    /// Whether a group `receiving` a site blocks it at least as hard as `holding` did — the
+    /// question asked when an edit moves a site from one group to another.
+    ///
+    /// `settingsHold` without its two scope fields: which categories a group ticks and which rules
+    /// it wrote say what it holds, not how hard, and who holds what is the very thing that moved.
+    /// Everything else is in — the numbers, the switches, the lock and both passwords, the week
+    /// and a dated block — so a site cannot leave a locked group for one with a shorter wait, no
+    /// strict window or no lock of its own.
+    static func holdsAsHard(
+        _ receiving: GroupSettings, as holding: GroupSettings, onDay today: String
+    ) -> Bool {
+        numbersHold(receiving, against: holding)
+            && switchesHold(receiving, against: holding)
+            && lockHolds(receiving, against: holding)
+            && windowsHold(receiving.timeWindows, against: holding.timeWindows)
+            && datedBlockHolds(receiving, against: holding, onDay: today)
     }
 
     /// The one-shot block, and it moves under the rule everything above it moves under: **later is

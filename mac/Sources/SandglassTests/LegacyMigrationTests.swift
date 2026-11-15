@@ -14,6 +14,7 @@ func runLegacyMigrationTests() {
     testAFileAlreadyAtTheDestinationIsKept()
     testTheBreadcrumbSaysWhereTheDataWent()
     testAMissingLegacyDirectoryIsNotAnError()
+    testAMoveThatFailsHalfwayIsFinishedByTheNextLaunch()
     MainActor.assumeIsolated {
         testTheLegacyAgentIsBootedOutAndItsPlistRemoved()
         testNoLegacyAgentMeansNoLaunchctl()
@@ -98,6 +99,45 @@ private func testAMissingLegacyDirectoryIsNotAnError() {
             "a Mac that never ran the old app has nothing to migrate"
         )
         expect(!exists(legacy), "and no legacy directory is created")
+    }
+}
+
+/// The config is the guard — the move runs only while the old directory has one and the new
+/// does not — so it has to be the last thing to cross. Moved first, a failure on any later file
+/// left a Sandglass with a config and an old directory still holding the history, and every
+/// launch after that found nothing to do.
+private func testAMoveThatFailsHalfwayIsFinishedByTheNextLaunch() {
+    withDirs { legacy, current in
+        write("{\"v\":1}", to: legacy.appendingPathComponent("config.json"))
+        write("{\"s\":1}", to: legacy.appendingPathComponent("state.json"))
+        write("{}\n", to: legacy.appendingPathComponent("events.jsonl"))
+        let failing = FailingMoves(failing: "state.json")
+        let first = LegacyMigration.migrateData(from: legacy, to: current, fileManager: failing)
+        if case .failed = first {} else { failTest("a move that throws is reported as a failure") }
+        expect(
+            !exists(current.appendingPathComponent("config.json")),
+            "the config has not crossed while another file is still behind"
+        )
+        expectEqual(
+            LegacyMigration.migrateData(from: legacy, to: current),
+            .moved(["config.json", "state.json"]),
+            "the next launch picks up where the failed one stopped"
+        )
+        expectEqual(read(current.appendingPathComponent("state.json")), "{\"s\":1}", "the history arrives")
+        expectEqual(read(current.appendingPathComponent("events.jsonl")), "{}\n", "beside what moved first")
+    }
+}
+
+/// A file manager whose move of one name throws, standing in for a full or read-only disk.
+private final class FailingMoves: FileManager, @unchecked Sendable {
+    let failing: String
+    init(failing: String) {
+        self.failing = failing
+        super.init()
+    }
+    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        if srcURL.lastPathComponent == failing { throw CocoaError(.fileWriteNoPermission) }
+        try super.moveItem(at: srcURL, to: dstURL)
     }
 }
 

@@ -41,7 +41,13 @@ final class RecordingBlocker: BlockerControlling {
     var sweepCount = 0
     func hideApp(bundleID: String) { hidden.append(bundleID) }
     func recheckFrontmost() { recheckCount += 1 }
-    func pollFrontmostPage() { pagePollCount += 1 }
+    /// What the real blocker's page poll would do with the page in front, for the suites that
+    /// are about what the poll charges.
+    var onPagePoll: (() -> Void)?
+    func pollFrontmostPage() {
+        pagePollCount += 1
+        onPagePoll?()
+    }
     func sweepBlockedApps() { sweepCount += 1 }
     func frontmostBundleID() -> String? { frontmost }
 }
