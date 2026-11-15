@@ -18,38 +18,72 @@ struct EngineClock {
 
     /// The last reading the engine believed: a wall time, and the uptime it was taken at.
     ///
-    /// In memory rather than in `EngineState`, like the mark below, and for the same reason. A
-    /// relaunch anchors on whatever the clock says at launch — the app cannot audit a change it
-    /// was not running for, and pretending otherwise would mean starting every launch suspicious
-    /// of a clock that is probably right.
+    /// Persisted through `anchor`, and taken back up by a relaunch on the same boot. It used to
+    /// live in memory only, on the argument that a relaunch is entitled to a fresh baseline — which
+    /// made quitting, setting the clock and starting again the way round every wall-clock block.
+    /// Within one boot the uptime counter vouches for the pair, so the relaunch goes on from it
+    /// instead of believing a clock it never saw being set. A reboot is where that runs out, the
+    /// same limit every uptime twin has.
     private var anchorWall: Date
     private var anchorUptime: TimeInterval
 
-    /// The latest moment this run has been asked about, and the reason `now` can never go
+    /// The latest moment the engine has been asked about, and the reason `now` can never go
     /// backwards.
     ///
-    /// In memory rather than in `EngineState`: it moves every second, and a state that moves
-    /// every second is an fsync every second — `StatePersistence` is built on the opposite. The
-    /// mark is a guard about a clock that moved *while the app was watching*, which is what the
-    /// design asks for, and a relaunch is entitled to a fresh baseline.
+    /// It moves every second, and a state that moves every second is an fsync every second, so it
+    /// reaches the disk only with the anchor — when one is taken, and then at most hourly. That is
+    /// enough for what a relaunch needs from it: to know it is behind what was already seen.
     private var highWater: Date
 
-    /// How far the reported clock may be from what this run expected before it counts as having
+    /// How far the reported clock may be from what the engine expected before it counts as having
     /// been moved rather than having drifted. Five minutes is far more than any NTP correction and
     /// far less than any clock change worth noticing, and both checks below use the same number.
+    ///
+    /// Measured from the anchor, which no longer follows every second — so it caps the **sum** of
+    /// every step since the anchor was taken, not each step on its own. Walking the clock forward
+    /// four minutes at a time buys four minutes, once.
     private static let toleranceSeconds: TimeInterval = 5 * 60
 
-    init(clock: Clock) {
+    /// How long the anchor is kept before it is taken again, and how much disagreement it may
+    /// absorb when it is: one second per thousand elapsed. A Mac's crystal and NTP stay well
+    /// inside that — tens of parts per million — and somebody stepping the clock by hand would
+    /// have to wait the better part of a day for every extra minute.
+    private static let reanchorSeconds: TimeInterval = 3600
+    private static let followRate: Double = 0.001
+
+    /// A fresh anchor on whatever the clock says, unless `stored` is one this boot can vouch for —
+    /// then the engine goes on from it, mark and all, as though it had never stopped.
+    init(clock: Clock, resuming stored: ClockAnchor? = nil) {
         self.clock = clock
-        highWater = clock.now
-        anchorWall = clock.now
-        anchorUptime = clock.uptime
+        if let stored, stored.isVouched(by: clock) {
+            anchorWall = stored.wall
+            anchorUptime = stored.uptime
+            highWater = stored.highWater
+        } else {
+            anchorWall = clock.now
+            anchorUptime = clock.uptime
+            highWater = clock.now
+        }
+        highWater = now
+    }
+
+    /// The pair the engine believes, with the boot it belongs to and the mark, as it is persisted.
+    var anchor: ClockAnchor {
+        ClockAnchor(
+            wall: anchorWall, uptime: anchorUptime, bootSession: clock.bootSession,
+            highWater: highWater
+        )
     }
 
     /// What the wall clock would say if it had only ever ticked: the last reading the engine
     /// believed, plus the real seconds since.
     private var extrapolatedWall: Date {
         anchorWall.addingTimeInterval(clock.uptime - anchorUptime)
+    }
+
+    /// How far the reported clock is from that extrapolation, either way.
+    private var disagreement: TimeInterval {
+        abs(clock.now.timeIntervalSince(extrapolatedWall))
     }
 
     /// Whether the system clock was **set** rather than left to run.
@@ -62,9 +96,7 @@ struct EngineClock {
     ///
     /// Derived rather than latched: it says itself out of existence the moment the two agree
     /// again, which is what makes putting the clock back the way out.
-    var wasChanged: Bool {
-        abs(clock.now.timeIntervalSince(extrapolatedWall)) > Self.toleranceSeconds
-    }
+    var wasChanged: Bool { disagreement > Self.toleranceSeconds }
 
     /// The wall time every decision is read at, which never runs backwards and never jumps.
     ///
@@ -78,7 +110,7 @@ struct EngineClock {
     /// the other measures it.
     var reading: ClockReading { ClockReading(wall: now, uptime: clock.uptime) }
 
-    /// Whether the system clock is currently behind what this run has already seen.
+    /// Whether the system clock is currently behind what the engine has already seen.
     ///
     /// Derived rather than latched, like every other warning in this app: it says itself out of
     /// existence the moment the real clock catches up, and a warning that outlived its cause
@@ -97,11 +129,16 @@ struct EngineClock {
     /// Brings the picture up to date. Called at the top of every catch-up, before anything below
     /// it reads a moment, so that everything in one pass reads the same one.
     ///
-    /// The anchor moves only while the two clocks agree. While they do not it stays exactly where
-    /// it was, and the extrapolation keeps running from it — which is what makes the wrong time
-    /// cost nothing rather than shift everything by however far it was moved.
+    /// The anchor moves only while the two clocks agree, and then only hourly and only by as much
+    /// as honest drift could explain. It used to follow the clock every second whenever the two
+    /// were within the tolerance, which let a run of small steps walk it anywhere. While the
+    /// clocks disagree it stays exactly where it was, and the extrapolation keeps running from it
+    /// — which is what makes the wrong time cost nothing rather than shift everything by however
+    /// far it was moved.
     mutating func advance() {
-        if !wasChanged {
+        let elapsed = clock.uptime - anchorUptime
+        if !wasChanged, elapsed >= Self.reanchorSeconds,
+           disagreement <= elapsed * Self.followRate {
             anchorWall = clock.now
             anchorUptime = clock.uptime
         }

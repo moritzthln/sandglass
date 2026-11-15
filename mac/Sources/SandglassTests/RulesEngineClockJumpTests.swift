@@ -193,13 +193,17 @@ private func testARelaunchOnTheSameBootKeepsTheTwins() {
     engine.endSession(targetID: target.id, early: false)    // ten minutes, until 12:10
     let saved = engine.state
 
-    // Quit, an hour put on the clock, started again — two minutes of real time later.
+    // Quit, an hour put on the clock, started again — two minutes of real time later. The flag
+    // is off so the answer is about the wait itself: with it on, the relaunch now knows the clock
+    // was set (see `RulesEngineClockTrustTests`) and blocks everything on top.
     let relaunched = makeEngine(
         targets: [target],
         groupSettings: [target.groupID: .standard],
         state: saved,
-        clock: FakeClock(august(10, 13, 2), uptime: 10_000 + 120)
+        clock: FakeClock(august(10, 13, 2), uptime: 10_000 + 120),
+        preventTimeChange: false
     )
+    expect(relaunched.clockWasChanged, "the relaunch is not fooled by the hour either")
     expectEqual(
         relaunched.decision(targetID: target.id), cooldownDecision(minutes: 8),
         "the wait comes back with the two minutes it actually served taken off"

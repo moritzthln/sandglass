@@ -52,6 +52,7 @@ private func testV1DocumentsStillDecode() {
     expectNil(state.emergencyPassEndsAt, "with none running")
     expect(state.cooldownUntilUptime.isEmpty, "a file from before the uptime twins carries none")
     expectNil(state.uptimeAnchor, "nor the reading they would be measured from")
+    expectNil(state.clockAnchor, "nor a clock anchor, so the launch anchors fresh as it always did")
 
     // The same rule for `config.json`: a group written by V1 has no `dailyMinutes` key at all,
     // and none of the three the group editor added either.

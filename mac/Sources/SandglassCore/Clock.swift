@@ -11,6 +11,23 @@ public protocol Clock: Sendable {
     var now: Date { get }
     /// Seconds since the machine started. Has no user interface, and no meaning across a reboot.
     var uptime: TimeInterval { get }
+    /// A name for this boot of the machine, or `nil` where there is none to read.
+    ///
+    /// What tells "the same boot, so the uptime counter still means what it meant" from "a
+    /// restart that happened to run longer than the last one had" — which comparing uptimes
+    /// alone cannot. See `ClockAnchor.isVouched(by:)`.
+    var bootSession: String? { get }
+}
+
+public extension Clock {
+    /// No name by default, which leaves the uptime comparison to decide on its own.
+    var bootSession: String? { nil }
+
+    /// Uptime written as a `Date`: a moment on a line nobody can set, for the in-memory guards
+    /// that only ever compare two moments taken in the same run — a two-second grace, a wait a
+    /// block page is serving. The `Date` it names is meaningless as a time of day and must never
+    /// be shown or stored; what it buys is that winding the system clock moves none of them.
+    var steadyNow: Date { Date(timeIntervalSinceReferenceDate: uptime) }
 }
 
 public struct SystemClock: Clock {
@@ -25,6 +42,53 @@ public struct SystemClock: Clock {
     /// exactly the signal `EngineClock` reads as somebody setting the clock.
     public var uptime: TimeInterval {
         TimeInterval(clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)) / 1_000_000_000
+    }
+
+    /// `kern.bootsessionuuid`, which the kernel draws fresh at every boot. Read once: it cannot
+    /// change under a running process.
+    public var bootSession: String? { Self.bootSessionUUID }
+
+    private static let bootSessionUUID: String? = {
+        var size = 0
+        guard sysctlbyname("kern.bootsessionuuid", nil, &size, nil, 0) == 0, size > 0 else {
+            return nil
+        }
+        var bytes = [CChar](repeating: 0, count: size)
+        guard sysctlbyname("kern.bootsessionuuid", &bytes, &size, nil, 0) == 0 else { return nil }
+        return String(cString: bytes)
+    }()
+}
+
+/// The last reading the engine believed, kept in `EngineState` so a relaunch on the same boot can
+/// go on from it rather than believe whatever the clock says at launch.
+///
+/// A pair, a boot and a mark: the wall time and the uptime it was taken at — which together say
+/// what the wall clock *should* read at any later uptime of the same boot — the boot they belong
+/// to, and the latest moment the engine had been asked about when they were written.
+public struct ClockAnchor: Codable, Equatable, Sendable {
+    public let wall: Date
+    public let uptime: TimeInterval
+    /// `nil` for a clock that has no name for its boot; the uptime comparison then decides.
+    public let bootSession: String?
+    /// The high-water mark when the anchor was written. Never earlier than `wall`.
+    public let highWater: Date
+
+    public init(wall: Date, uptime: TimeInterval, bootSession: String?, highWater: Date) {
+        self.wall = wall
+        self.uptime = uptime
+        self.bootSession = bootSession
+        self.highWater = highWater
+    }
+
+    /// Whether `clock` is still on the boot this anchor was taken on, so its uptime can still be
+    /// extrapolated from.
+    ///
+    /// Both names, where both exist, and they must match. Without them, the rule
+    /// `EngineState.dropUptimeTwinsIfStale` already uses: a machine reporting less uptime than
+    /// this restarted since.
+    public func isVouched(by clock: Clock) -> Bool {
+        if let mine = bootSession, let theirs = clock.bootSession { return mine == theirs }
+        return clock.uptime >= uptime
     }
 }
 

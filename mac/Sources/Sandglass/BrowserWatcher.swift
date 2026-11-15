@@ -1,4 +1,5 @@
 import SandglassAppCore
+import SandglassCore
 import AppKit
 import ApplicationServices
 
@@ -159,7 +160,9 @@ final class BrowserWatcher {
     }
 
     private func page(of browser: KnownBrowser, in app: NSRunningApplication) -> Page? {
-        let now = Date()
+        // Uptime, not the wall clock: a backoff stamped on the wall clock lasted as long as the
+        // clock was then set back, and a browser nobody reads is a browser nothing blocks.
+        let now = SystemClock().steadyNow
         for strategy in memory.plan(for: browser, now: now) {
             switch read(strategy, of: browser, pid: app.processIdentifier) {
             case .address(let text, let tabID):

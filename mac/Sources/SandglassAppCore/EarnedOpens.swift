@@ -17,6 +17,12 @@ import Foundation
 /// page's countdown is drawn in JavaScript over a number in a query string, and it is `earnedAt`
 /// below that decides, measured on this app's own clock.
 ///
+/// **That clock is uptime.** Every `now` handed in here is `Clock.steadyNow`, never `Date()`: a
+/// wait stamped on the wall clock was served the moment somebody set the clock forward, and the
+/// engine does not stand behind the page's countdown on its own. Nothing here is stored or shown,
+/// so a `Date` on a line nobody can set is all it needs — and `outstanding` is turned back into
+/// wall time by the one caller that draws it.
+///
 /// **What bounds a claim**, and each one is a way of walking through a block that was not served:
 ///
 /// - **One address.** The wait was served on a page, and it buys that page. Anything else is a

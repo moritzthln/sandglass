@@ -69,10 +69,15 @@ final class AppBlocker: BlockerControlling {
 
     /// How long an open's own activation stays forgiven, and how long macOS may go on naming
     /// a hidden application as frontmost. Both are about the operating system's latency, not
-    /// about any rule — which is why the blocker reads the wall clock directly here instead of
+    /// about any rule — which is why the blocker reads the system clock directly here instead of
     /// borrowing the injected clock `AppState` runs the rules on.
     private static let graceSeconds: TimeInterval = 2
     private static let staleFrontmostSeconds: TimeInterval = 2
+
+    /// The moment both guards are measured on: uptime, not the wall clock. Setting the clock back
+    /// an hour used to stretch a two-second grace into an hour the recheck left that app alone, and
+    /// setting it forward skipped the stale-frontmost guard. See `Clock.steadyNow`.
+    private static var steadyNow: Date { SystemClock().steadyNow }
 
     // MARK: - Startup
 
@@ -144,7 +149,7 @@ final class AppBlocker: BlockerControlling {
         escalation.record(
             bundleID, wentAway: outcome.wentAway, fullscreenRead: outcome.fullscreenRead
         )
-        if outcome.wentAway { recentlyHidden.record(bundleID, at: Date()) }
+        if outcome.wentAway { recentlyHidden.record(bundleID, at: Self.steadyNow) }
         // The overlay may be standing in front of exactly this app, showing a screen the hide
         // has just invalidated — a session that ran out is a cooldown from this second on.
         // This path is not affected by the line above, and must not be: the user is looking
@@ -181,7 +186,7 @@ final class AppBlocker: BlockerControlling {
         // while macOS is still naming the app it was just told to hide. Taking that at face
         // value would raise a blocked screen over an app the user is no longer looking at.
         // Nothing is lost by waiting: going back to it arrives as a real activation.
-        if recentlyHidden.isRecent(bundleID, now: Date()) { return }
+        if recentlyHidden.isRecent(bundleID, now: Self.steadyNow) { return }
         // Peeked at, never spent. The grace belongs to the activation an "Open" is about to
         // cause; a recheck that consumed it would leave that activation unprotected, and for
         // a gentle group the pause screen would come straight back with nothing to show for
@@ -190,7 +195,7 @@ final class AppBlocker: BlockerControlling {
         // and no caller can reach it, since a forced recheck comes only from a focus session,
         // a configuration change or the demo seed, none of which can run while the user is
         // pressing "Open" behind the overlay.
-        if grace.isPending(bundleID: bundleID, now: Date()) { return }
+        if grace.isPending(bundleID: bundleID, now: Self.steadyNow) { return }
         handle(activationOf: app)
     }
 
@@ -244,7 +249,7 @@ final class AppBlocker: BlockerControlling {
         // Unless this is the activation an "Open" just performed — see `ActivationGrace`.
         // Without this, a gentle group would meet its own pause screen again the instant it
         // cleared one, because a gentle open starts no session for the decision to see.
-        if grace.consume(bundleID: bundleID, now: Date()) { return }
+        if grace.consume(bundleID: bundleID, now: Self.steadyNow) { return }
         evaluate(.app(bundleID: bundleID, running: app))
     }
 
@@ -336,7 +341,7 @@ final class AppBlocker: BlockerControlling {
         switch subject {
         case .app(let bundleID, _):
             guard let info = appState.displayInfo(forBundleID: bundleID) else { return }
-            grace.grant(bundleID: bundleID, until: Date().addingTimeInterval(Self.graceSeconds))
+            grace.grant(bundleID: bundleID, until: Self.steadyNow.addingTimeInterval(Self.graceSeconds))
             guard case .denied(let decision) = appState.consumeOpen(targetID: info.targetID)
             else { return }
             present(decision, info: info, for: subject)
@@ -425,7 +430,7 @@ final class AppBlocker: BlockerControlling {
     private func letThrough(to subject: BlockSubject, granting bundleID: String) {
         let app = subject.running
         clearOverlay()
-        grace.grant(bundleID: bundleID, until: Date().addingTimeInterval(Self.graceSeconds))
+        grace.grant(bundleID: bundleID, until: Self.steadyNow.addingTimeInterval(Self.graceSeconds))
         app.activate()
     }
 
@@ -537,7 +542,7 @@ final class AppBlocker: BlockerControlling {
             runningBundleID: Bundle.main.bundleIdentifier,
             // Peeked at, never spent — the grace belongs to the activation an "Open" is about to
             // cause, and a sweep that consumed it would leave that activation unprotected.
-            graced: grace.pendingBundleID(now: Date())
+            graced: grace.pendingBundleID(now: Self.steadyNow)
         ) { verdict(of: $0, from: appState) }
         // Everything the sweep no longer names has gone away or stopped being blocked, and
         // neither is something to go on pressing.
@@ -591,7 +596,7 @@ extension AppBlocker: PageBlockerHost {
     /// A browser hidden by "Back to work" goes on being named as frontmost for about a second, and
     /// the page poll must not believe that reading — see `RecentlyHidden`.
     func wasRecentlyHidden(_ bundleID: String) -> Bool {
-        recentlyHidden.isRecent(bundleID, now: Date())
+        recentlyHidden.isRecent(bundleID, now: Self.steadyNow)
     }
 
     /// A block page's "Enter password" was pressed: ask in a window of our own.

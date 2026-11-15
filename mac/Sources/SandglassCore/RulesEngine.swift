@@ -18,11 +18,15 @@ public final class RulesEngine {
     public internal(set) var state: EngineState
 
     private let clock: Clock
-    private let calendar: Calendar
+
+    /// The calendar whose time zone every wall-clock question is read in. A `var` because the
+    /// Mac can fly: see `adoptTimeZone(_:)`, which is the only thing that replaces it — together
+    /// with the two collaborators below that were built from it.
+    public private(set) var calendar: Calendar
 
     /// Wall-clock arithmetic and every question about a group's time windows. See `WindowClock`
     /// for why the calendar lives there rather than here.
-    let windows: WindowClock
+    var windows: WindowClock
 
     /// Effects produced outside `tick()`. Drained by the next tick, so an effect can
     /// arrive up to a second late but is never lost.
@@ -32,18 +36,21 @@ public final class RulesEngine {
 
     /// What a finished day was worth, and the one home for the ISO week both the freeze and
     /// the emergency pass are charged to. See `StreakScoring`.
-    private let streak: StreakScoring
+    private var streak: StreakScoring
 
     /// The engine's picture of the time: a wall clock that never runs backwards, and the uptime
     /// every countdown is measured against. Everything below reads the clock through this.
-    private var time: EngineClock
+    /// `internal` so the clock's questions can live in `RulesEngine+Clock.swift`.
+    private(set) var time: EngineClock
 
     public init(config: Config, state: EngineState, clock: Clock, calendar: Calendar = .current) {
         self.config = config
         self.state = state
         self.clock = clock
         self.calendar = calendar
-        time = EngineClock(clock: clock)
+        // A relaunch on the same boot goes on from the reading the last run believed rather than
+        // from whatever the clock says now. See `EngineClock.init`.
+        time = EngineClock(clock: clock, resuming: state.clockAnchor)
         let windows = WindowClock(timeZone: calendar.timeZone)
         self.windows = windows
         streak = StreakScoring(calendar: calendar, gregorian: windows.gregorian)
@@ -60,29 +67,28 @@ public final class RulesEngine {
     var now: Date { time.now }
 
     /// That same moment with the uptime it was read at, which is how every deadline in the state
-    /// is compared. See `ClockReading`.
-    var reading: ClockReading { time.reading }
+    /// is compared. See `ClockReading`. Public so the app measures its own waits on the same
+    /// guarded reading rather than on the raw clock.
+    public var reading: ClockReading { time.reading }
 
-    /// Whether the system clock is currently behind what this run has already seen.
-    ///
-    /// **Read by the tests and by nothing else**, as is `clockWasChanged` below — the app asks
-    /// `clockWarningLine`, which is the answer with the words on it. They stay `public` rather than
-    /// becoming `internal` because `SandglassTests` is an ordinary executable target that imports
-    /// this module: there is no `@testable` on this toolchain, so `internal` here means untestable.
-    /// What they buy is a check on the two states *separately* — held-and-warning is one line, and
-    /// a warning that appeared for the wrong one of the two would read the same.
-    public var clockMovedBackwards: Bool { time.movedBackwards }
-
-    /// Whether the system clock has been set rather than left to run — in either direction. See
-    /// `EngineClock.wasChanged`, and `Config.preventTimeChange` for what is done about it. Read by
-    /// the tests only; see above.
-    public var clockWasChanged: Bool { time.wasChanged }
-
-    /// The line the menu bar shows while the clock and the engine disagree, or `nil`.
-    public var clockWarningLine: String? { time.warningLine }
-
+    /// Brings the clock up to date, and the anchor in the state with it whenever the engine took a
+    /// new one — which is at launch and then at most hourly, so this is not a write per second.
     private func advanceClock() {
         time.advance()
+        let anchor = time.anchor
+        if state.clockAnchor?.wall != anchor.wall || state.clockAnchor?.uptime != anchor.uptime {
+            state.clockAnchor = anchor
+        }
+    }
+
+    /// Reads every wall-clock question in `zone` from now on: after a flight, or a change in the
+    /// Date & Time pane. The day key follows only forward, like every other day change.
+    public func adoptTimeZone(_ zone: TimeZone) {
+        guard zone != calendar.timeZone else { return }
+        calendar.timeZone = zone
+        windows = WindowClock(timeZone: zone)
+        streak = StreakScoring(calendar: calendar, gregorian: windows.gregorian)
+        advanceToNow()
     }
 
     /// This moment's counters, as the arithmetic the decisions below are made of.
@@ -515,11 +521,18 @@ public final class RulesEngine {
     /// user would never have seen here. And the streak is not scored, so its record stays a
     /// record of days rather than of settings changes. Somebody who does want a fresh day still
     /// has the button that says so.
+    ///
+    /// Forward only, like the roll itself. Moving the start later at 02:00 would put the moment
+    /// back in yesterday, and at the new start yesterday would roll over — and be scored — a
+    /// second time. The day already begun simply runs on until the new start comes round again.
     private func rebaseDayKey() {
-        state.dayKey = EngineState.dayKey(
-            for: now, calendar: calendar, dayStartMinutes: config.dayStartMinutes
-        )
+        state.dayKey = dayReset.day(at: now, after: state.dayKey)
     }
+
+    /// The day this moment is in, as the engine counts days: the day key it would roll to, read
+    /// on the guarded clock. What the app asks whenever it needs "today" — a dated block's end is
+    /// judged against this, so a clock set past that end does not make the block look over.
+    public var today: String { dayReset.day(at: now, after: state.dayKey) }
 
     // MARK: - Time passing
 
@@ -639,7 +652,14 @@ public final class RulesEngine {
         )
     }
 
-    /// The ISO week a moment belongs to. Forwarded to `StreakScoring` rather than spelled out
-    /// again: the emergency pass and the streak freeze are charged to the same week.
-    private func weekKey(for date: Date) -> String { streak.weekKey(for: date) }
+    /// The ISO week a moment belongs to — the week of its **logical** day, shifted by the day
+    /// start. Forwarded to `StreakScoring` rather than spelled out again: the emergency pass and
+    /// the streak freeze are charged to the same week, and the freeze is charged by day key, so
+    /// Monday 01:00 is still Sunday's week for both.
+    private func weekKey(for date: Date) -> String {
+        let day = EngineState.dayKey(
+            for: date, calendar: calendar, dayStartMinutes: config.dayStartMinutes
+        )
+        return streak.weekKey(forDayKey: day) ?? streak.weekKey(for: date)
+    }
 }

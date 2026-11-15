@@ -18,19 +18,17 @@ import Foundation
 extension AppState {
 
     /// The moment as both clocks read it. Every deadline in this app is measured against the
-    /// second half — see `ClockReading`.
-    var reading: ClockReading { ClockReading(wall: clock.now, uptime: clock.uptime) }
+    /// second half — see `ClockReading` — and the first is the engine's guarded wall time, never
+    /// the raw clock, so the two halves are the ones the engine itself decides on.
+    var reading: ClockReading { readout.reading }
 
     /// The day this moment is in, as `DatedBlock` spells one.
     ///
-    /// Read from the running configuration's own day start, so it is the same boundary the engine
-    /// rolls the budgets on. Two things need it: the direction table, for the one field whose
-    /// meaning depends on the date, and the group editor's row.
-    public var today: String {
-        DatedBlock.today(
-            at: clock.now, calendar: calendar, dayStartMinutes: config.dayStartMinutes
-        )
-    }
+    /// **The engine's day**, not one worked out here from the raw clock. Two things need it: the
+    /// direction table, for the one field whose meaning depends on the date, and the save that
+    /// drops a dated block whose day has arrived. Read off the system clock, setting the clock
+    /// past a block's end made it "past", and the next save deleted it for good.
+    public var today: String { readout.today }
 
     /// Whether an emergency pass is lifting everything, the settings lock included.
     var emergencyPassRunning: Bool { readout.emergencyPassEndsAt != nil }

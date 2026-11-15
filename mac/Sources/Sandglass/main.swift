@@ -17,6 +17,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var blocker: AppBlocker?
     /// Held for as long as the app runs: a cancelled dispatch source stops delivering.
     private var terminationSignal: DispatchSourceSignal?
+    /// Held for the same reason: the observer that tells the engine the Mac changed time zone.
+    private var timeZoneObserver: NSObjectProtocol?
 
     /// One Sandglass, and it is the newest one — which since the keep-alive changed shape means it
     /// is launchd's.
@@ -177,6 +179,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItemController = StatusItemController(appState: state)
         state.start()
+        // After a flight the windows and the day boundary follow the zone the Mac is in, not the
+        // one it launched in. The system zone is cached per process, hence the reset first.
+        timeZoneObserver = NotificationCenter.default.addObserver(
+            forName: .NSSystemTimeZoneDidChange, object: nil, queue: .main
+        ) { [weak state] _ in
+            NSTimeZone.resetSystemTimeZone()
+            MainActor.assumeIsolated { state?.systemTimeZoneChanged(to: TimeZone.current) }
+        }
         blocker.start(appState: state)
         appState = state
         self.blocker = blocker

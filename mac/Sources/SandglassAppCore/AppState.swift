@@ -172,9 +172,9 @@ public final class AppState {
     @ObservationIgnored private let notifications: NotificationPresenting?
     @ObservationIgnored private let keepAlive: KeepAliveManaging?
     @ObservationIgnored let clock: Clock
-    /// `internal` rather than `private` for the reason `clock` is: `AppStateSettingsVisit` reads
-    /// both to work out which day this moment is in. See `AppState.today`.
-    @ObservationIgnored let calendar: Calendar
+    /// The engine's calendar, whose zone follows the Mac's. Read through rather than held, so a
+    /// flight cannot leave this and the engine in two zones — see `systemTimeZoneChanged`.
+    var calendar: Calendar { readout.calendar }
 
     // MARK: - Bookkeeping
 
@@ -225,7 +225,6 @@ public final class AppState {
         self.keepAlive = keepAlive
         keepAliveEnabled = keepAlive?.isInstalled ?? false
         self.clock = clock
-        self.calendar = calendar
 
         // A local until every stored property is assigned: a class initialiser may not touch
         // `self` before then, and the disk has to be read before the engine can be built. Both
@@ -238,7 +237,7 @@ public final class AppState {
             config: loaded.config.config, state: loaded.state, clock: clock, calendar: calendar
         )
         self.engine = engine
-        let readout = EngineReadout(engine: engine, calendar: calendar)
+        let readout = EngineReadout(engine: engine)
         self.readout = readout
         writer = ConfigWriter(engine: engine, persistence: persistence)
         statusReadout = StatusReadout(persistence: persistence, readout: readout)
@@ -362,7 +361,7 @@ public final class AppState {
     @discardableResult
     private func recompute() -> BlockEdge {
         pauseBreak.expireNote()
-        let projection = readout.project(now: clock.now)
+        let projection = readout.project()
         if stats != projection.stats { stats = projection.stats }
         if config != projection.config { config = projection.config }
         if budgetsByGroup != projection.budgets { budgetsByGroup = projection.budgets }
@@ -450,10 +449,19 @@ public final class AppState {
     /// `endSession` emits no effect (the user is standing right in front of the result), so the
     /// effects the engine's own expiry would have raised are raised by hand.
     public func endActiveSessionEarly() {
-        guard let groupID = readout.nextRelockingSession(now: clock.now)?.groupID else { return }
+        guard let groupID = readout.nextRelockingSession()?.groupID else { return }
         engine.endSession(groupID: groupID, early: true)
         effects.sessionEnded(groupID: groupID)
         finishMutation()
+    }
+
+    /// The Mac is in a different time zone: after a flight, or a change in the Date & Time pane.
+    /// Called by the app on `NSSystemTimeZoneDidChange`; the engine reads every window and day
+    /// boundary in the new zone from this second on, and whatever that opens or shuts is
+    /// rechecked at once rather than at the next change of the blocked set.
+    public func systemTimeZoneChanged(to zone: TimeZone) {
+        engine.adoptTimeZone(zone)
+        finishMutation(forceRecheck: true)
     }
 
     public func startFocusSession(minutes: Int) {
@@ -722,7 +730,7 @@ public final class AppState {
     /// boundary on the same timeline as everything else here.
     public func weeklyOpenCounts() -> (counts: [String: Int], complete: Bool) {
         persistence.weeklyOpens(
-            now: clock.now, calendar: calendar, dayStartMinutes: config.dayStartMinutes
+            now: reading.wall, calendar: calendar, dayStartMinutes: config.dayStartMinutes
         )
     }
 

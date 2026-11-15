@@ -118,6 +118,10 @@ public struct EngineState: Codable, Equatable, Sendable {
     /// is measured from a counter that no longer exists.
     public var uptimeAnchor: TimeInterval?
 
+    /// The reading the engine last believed, so a relaunch on the same boot goes on from it rather
+    /// than trusting whatever the clock says at launch. Absent in every `state.json` written before
+    /// it existed, which a launch reads exactly as it always did. See `EngineClock`.
+    public var clockAnchor: ClockAnchor?
     /// Wrong access passwords, and the waits they have earned, or `nil` when there are none —
     /// which is what every `state.json` written before the count was kept says. See
     /// `AccessAttempts` for why it is kept here rather than in memory.
@@ -143,6 +147,7 @@ public struct EngineState: Codable, Equatable, Sendable {
         emergencyPassEndsAtUptime: TimeInterval? = nil,
         cooldownUntilUptime: [String: TimeInterval] = [:],
         uptimeAnchor: TimeInterval? = nil,
+        clockAnchor: ClockAnchor? = nil,
         accessAttempts: AccessAttempts? = nil
     ) {
         self.version = version
@@ -164,6 +169,7 @@ public struct EngineState: Codable, Equatable, Sendable {
         self.emergencyPassEndsAtUptime = emergencyPassEndsAtUptime
         self.cooldownUntilUptime = cooldownUntilUptime
         self.uptimeAnchor = uptimeAnchor
+        self.clockAnchor = clockAnchor
         self.accessAttempts = accessAttempts
     }
 
@@ -272,6 +278,7 @@ public struct EngineState: Codable, Equatable, Sendable {
             try container.decodeIfPresent([String: TimeInterval].self, forKey: .cooldownUntilUptime)
             ?? [:]
         uptimeAnchor = try container.decodeIfPresent(TimeInterval.self, forKey: .uptimeAnchor)
+        clockAnchor = try container.decodeIfPresent(ClockAnchor.self, forKey: .clockAnchor)
         // Unreadable is no count at all rather than a refused file: a `state.json` `Store` cannot
         // read costs the whole day, and a minute's wait is not worth that.
         accessAttempts = try? container.decodeIfPresent(AccessAttempts.self, forKey: .accessAttempts)

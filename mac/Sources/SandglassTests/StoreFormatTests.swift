@@ -329,6 +329,9 @@ private func testUptimeTwinsSurviveARoundTrip() {
     state.emergencyPassEndsAt = august(10, 15)
     state.emergencyPassEndsAtUptime = 13_600
     state.uptimeAnchor = 10_000
+    state.clockAnchor = ClockAnchor(
+        wall: august(10, 12), uptime: 10_000, bootSession: "boot-1", highWater: august(10, 12)
+    )
 
     guard let bytes = try? SandglassJSON.encoder.encode(state),
           let back = try? SandglassJSON.decoder.decode(EngineState.self, from: bytes) else {
@@ -339,6 +342,7 @@ private func testUptimeTwinsSurviveARoundTrip() {
     expectEqual(back.sessions["grp:c"]?.endsAtUptime, 10_300, "a session's does too")
     expectEqual(back.emergencyPassEndsAtUptime, 13_600, "and the emergency pass's")
     expectEqual(back.uptimeAnchor, 10_000, "with the reading they are all measured from")
+    expectEqual(back.clockAnchor, state.clockAnchor, "and the clock anchor a relaunch goes on from")
     expectEqual(back, state, "and nothing else moved")
 }
 
