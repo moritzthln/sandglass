@@ -47,6 +47,11 @@ struct PasscodeSheet: View {
     @State private var new = ""
     @State private var repeated = ""
     @State private var problem: String?
+    /// Which field holds the keyboard, so Return can walk down the form: current, new, repeat,
+    /// and only then Save. Return in New used to do nothing at all.
+    @FocusState private var focus: Field?
+
+    private enum Field: Hashable { case current, new, repeated }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -54,12 +59,16 @@ struct PasscodeSheet: View {
             if mode.asksForCurrent {
                 SecureField("Current \(noun)", text: $current)
                     .textFieldStyle(.roundedBorder)
+                    .focused($focus, equals: .current)
                     .onSubmit(attempt)
             }
             SecureField("New \(noun)", text: $new)
                 .textFieldStyle(.roundedBorder)
+                .focused($focus, equals: .new)
+                .onSubmit(attempt)
             SecureField("Repeat new \(noun)", text: $repeated)
                 .textFieldStyle(.roundedBorder)
+                .focused($focus, equals: .repeated)
                 .onSubmit(attempt)
             // The rule the field enforces, and nothing else. It used to add "there is no way
             // to read it back", which is a fact about the passcode rather than about this
@@ -89,7 +98,18 @@ struct PasscodeSheet: View {
     /// The two rules about the new passcode are checked here; everything the app has to be asked
     /// about — whether the current one is right, whether the edit is allowed — comes back from
     /// `submit` as a line to show.
+    /// Return in a field with the next one still empty moves on to it rather than failing the
+    /// whole form. Every field submits here rather than moving focus itself, because Return may
+    /// reach the default button too, and both landing in one place is what keeps that harmless.
     private func attempt() {
+        if focus == .current, new.isEmpty {
+            focus = .new
+            return
+        }
+        if focus == .new, repeated.isEmpty {
+            focus = .repeated
+            return
+        }
         guard new.count >= PasscodeHash.minimumLength else {
             problem = "A \(noun) needs at least \(PasscodeHash.minimumLength) characters."
             return

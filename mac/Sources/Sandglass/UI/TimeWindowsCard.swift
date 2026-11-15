@@ -78,7 +78,10 @@ struct TimeWindowsCard: View {
             DatedBlockSheet(
                 today: today ?? "",
                 current: settings.blockedUntilDay,
-                onDone: { settings.blockedUntilDay = $0; pickingDate = false },
+                earliest: DatedBlockPick.earliest(
+                    today: today ?? "", standing: standingDay, tighteningOnly: tighteningOnly
+                ),
+                onDone: setDatedBlock,
                 onCancel: { pickingDate = false }
             )
         }
@@ -124,9 +127,15 @@ struct TimeWindowsCard: View {
     private func datedBlockRow(_ today: String) -> some View {
         if let day = DatedBlock.standing(settings.blockedUntilDay, onDay: today) {
             SettingsRow(DatedBlock.rowText(day), help: Self.datedHelp) {
-                SecondaryPillButton(title: "Remove") { settings.blockedUntilDay = nil }
-                    .disabled(tighteningOnly)
-                    .help(tighteningOnly ? Self.heldHelp : "End this block now")
+                HStack(spacing: 8) {
+                    // What the help text has always promised: pushing a block further out is a
+                    // tightening and always goes through. It used to offer only Remove.
+                    SecondaryPillButton(title: "Change…") { pickingDate = true }
+                        .help(tighteningOnly ? "Push this block further out" : "Pick another day")
+                    SecondaryPillButton(title: "Remove") { settings.blockedUntilDay = nil }
+                        .disabled(tighteningOnly)
+                        .help(tighteningOnly ? Self.heldHelp : "End this block now")
+                }
             }
         } else {
             SettingsRow("Block until a day", help: Self.datedHelp) {
@@ -211,7 +220,7 @@ struct TimeWindowsCard: View {
 
     private func row(_ window: TimeWindow) -> some View {
         HStack(spacing: 10) {
-            Circle().fill(Palette.windowTint(window.kind)).frame(width: 10, height: 10)
+            WindowFill(kind: window.kind).frame(width: 10, height: 10).clipShape(Circle())
             VStack(alignment: .leading, spacing: 1) {
                 Text(TimeWindowCopy.kind(window.kind)).font(.callout)
                 Text(TimeWindowCopy.schedule(window)).font(.caption).foregroundStyle(.secondary)
@@ -222,7 +231,8 @@ struct TimeWindowsCard: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("Delete this time window")
+            .disabled(deleteHeld(window))
+            .help(deleteHeld(window) ? Self.heldHelp : "Delete this time window")
             .accessibilityLabel("Delete this time window")
             Image(systemName: "chevron.right").imageScale(.small).foregroundStyle(.secondary)
         }
@@ -234,6 +244,7 @@ struct TimeWindowsCard: View {
         .onTapGesture { sheet = .editing(window.id) }
         .contextMenu {
             Button("Delete", role: .destructive) { delete(window) }
+                .disabled(deleteHeld(window))
         }
         .accessibilityElement(children: .combine)
     }
@@ -293,6 +304,34 @@ struct TimeWindowsCard: View {
     private func closesTheWeek(_ window: TimeWindow) -> Bool {
         TimeWindowList.closesTheWeek(
             TimeWindowList.merging(window, into: windows), replacing: windows
+        )
+    }
+
+    /// The day a block stands until, or `nil` when none does.
+    private var standingDay: String? {
+        today.flatMap { DatedBlock.standing(settings.blockedUntilDay, onDay: $0) }
+    }
+
+    /// The date sheet's Done. It closes only when the write landed, like every other sheet in
+    /// the app: it used to close either way, so a refused date was thrown away and the reason
+    /// left on the page the sheet had been covering. The reason comes back for the sheet to say.
+    private func setDatedBlock(_ day: String) -> String? {
+        settings.blockedUntilDay = day
+        guard settings.blockedUntilDay != day else {
+            pickingDate = false
+            return nil
+        }
+        return problem.wrappedValue ?? "That day could not be set."
+    }
+
+    /// Whether a wait holds this window's delete: removing a strict window loosens, removing a
+    /// break tightens. Tapping the row stays live — an edit can go either way, and the sheet's
+    /// Save is refused on one that loosens. See `HeldControl`.
+    private func deleteHeld(_ window: TimeWindow) -> Bool {
+        var after = settings
+        after.timeWindows = TimeWindowList.removing(window.id, from: windows)
+        return HeldControl.isHeld(
+            tighteningOnly: tighteningOnly, from: settings, to: after, onDay: today ?? ""
         )
     }
 

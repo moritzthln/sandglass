@@ -14,6 +14,9 @@ struct StatsPageView: View {
 
     @State private var weekly: [String: Int] = [:]
     @State private var weeklyComplete = true
+    /// The day `weekly` was counted on, so a page left open across midnight — or into a new week —
+    /// can tell that its "This week" is about another one.
+    @State private var countedOn = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.cardSpacing) {
@@ -59,6 +62,15 @@ struct StatsPageView: View {
         // left open on a second display re-parsed `events.jsonl` once a second, on the main
         // thread, for a count that had not moved.
         .onChange(of: appState.stats.opensUsedToday) { _, _ in reload() }
+        // And when the day turns. Nothing published moves at midnight for a day with no opens
+        // spent, so the page asks the clock once a minute — a comparison of two strings, with the
+        // walk of the log only when they differ.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                if appState.today != countedOn { reload() }
+            }
+        }
     }
 
     private var groups: [ConfigGroup] { ConfigBuilder.groups(in: appState.config) }
@@ -95,5 +107,6 @@ struct StatsPageView: View {
         let counts = appState.weeklyOpenCounts()
         weekly = counts.counts
         weeklyComplete = counts.complete
+        countedOn = appState.today
     }
 }
