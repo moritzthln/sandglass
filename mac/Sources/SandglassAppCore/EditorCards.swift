@@ -36,6 +36,16 @@ public enum EditorCards {
         !TimeWindow.coversEveryMinute(of: windowsInForce(windows, presetRule: presetRule))
     }
 
+    /// The caption under the cooldown and the earn-back rows, or `nil` when both are live.
+    ///
+    /// Both are about the end of an open — the wait counts from it, and the half comes back for
+    /// reaching it early — and a group with no open length has opens that never end. Saying so is
+    /// the honest alternative to a stepper that sets a wait nothing will ever start. The values are
+    /// kept rather than cleared, so giving the group an open length brings them back as they were.
+    public static func sessionOnlyCaption(sessionMinutes: Int?) -> String? {
+        sessionMinutes == nil ? "Needs an open length — with no relock, no open ever ends" : nil
+    }
+
     /// The week these knobs would actually run in.
     ///
     /// A group's is its own list. A preset's counts only under `.use`: the card keeps the drawn

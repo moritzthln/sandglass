@@ -227,7 +227,8 @@ public enum EditDirection {
 
     /// Whether the group's strict windows open with its password.
     private static func opensStrictWindows(_ settings: GroupSettings) -> Bool {
-        settings.accessPassword != nil && settings.passwordOnlyInStrictWindows
+        if case .inStrictWindows = settings.passwordMode { return true }
+        return false
     }
 
     /// A passcode that was not there may be set; one that was there has to survive untouched.

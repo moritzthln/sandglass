@@ -35,5 +35,26 @@ enum ConfigSwap {
         state.deniedAttempts = state.deniedAttempts.filter { known.contains($0.key) }
         state.usageSecondsToday = state.usageSecondsToday.filter { known.contains($0.key) }
         state.sessions = state.sessions.filter { newConfig.activeSettings(forGroup: $0.key) != nil }
+        for (groupID, session) in state.sessions {
+            guard let settings = newConfig.settings(forGroup: groupID) else { continue }
+            state.sessions[groupID] = shortened(session, to: settings)
+        }
+    }
+
+    /// A running session cut to the length its group now gives one, when that is shorter.
+    ///
+    /// A shorter open length is a tightening, and a tightening that waited for the next open would
+    /// leave the hour already granted standing at the old length. Only ever shorter: a longer one
+    /// is a loosening, and the session already granted is all it was granted. Both halves of the
+    /// deadline move by the same amount, so the uptime twin keeps measuring the same end.
+    static func shortened(_ session: ActiveSession, to settings: GroupSettings) -> ActiveSession {
+        let minutes = session.kind == .password ? settings.accessMinutes : settings.sessionMinutes
+        guard let minutes, let endsAt = session.endsAt else { return session }
+        let cut = endsAt.timeIntervalSince(session.startedAt) - TimeInterval(minutes * 60)
+        guard cut > 0 else { return session }
+        var shorter = session
+        shorter.endsAt = endsAt.addingTimeInterval(-cut)
+        shorter.endsAtUptime = session.endsAtUptime.map { $0 - cut }
+        return shorter
     }
 }

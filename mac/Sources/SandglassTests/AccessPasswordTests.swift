@@ -81,9 +81,11 @@ private func testTheRightPasswordOpensTheGroupForItsSessionThenRelocks() {
     expectEqual(engine.decision(targetID: target.id), .allowed(remainingSessionSeconds: 300), "and it is open")
     expectEqual(opensUsed(engine), 0, "nothing was spent from the day to open it")
     expectEqual(
-        engine.tryAccessPassword(password, url: "youtube.com/watch"), .unlocked(sessionSeconds: 300),
-        "typing it again while open buys nothing and costs nothing"
+        engine.tryAccessPassword(password, url: "youtube.com/watch"),
+        .refused(.allowed(remainingSessionSeconds: 300)),
+        "typing it again while open buys nothing, costs nothing, and is not told it unlocked anything"
     )
+    expectNil(engine.state.accessAttempts, "nor is it counted")
 
     clock.advance(seconds: 299)
     expectEqual(engine.decision(targetID: target.id), .allowed(remainingSessionSeconds: 1), "open to the last second")

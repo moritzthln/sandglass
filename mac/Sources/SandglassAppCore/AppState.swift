@@ -587,7 +587,10 @@ public final class AppState {
         accessPassword: String? = nil
     ) -> String? {
         if !enabled, let refusal = lockRefusal(scope, answered: passcode) { return refusal }
-        if !enabled, let refusal = leavingRefusal(typed: accessPassword) { return refusal }
+        if !enabled, let refusal = leavingRefusal(typed: accessPassword) {
+            finishMutation()   // a miss is counted in the state, which is what outlives a quit
+            return refusal
+        }
         guard let keepAlive else { return nil }
         let problem = keepAlive.setInstalled(enabled)
         keepAliveEnabled = keepAlive.isInstalled
@@ -671,6 +674,7 @@ public final class AppState {
         // way an edit moves is decided against a key the save is about to take out — see
         // `ConfigBuilder.droppingPastBlocks(in:onDay:)`.
         let cleaned = ConfigBuilder.droppingPastBlocks(in: newConfig, onDay: today)
+            .callingOffStaleForgotHours(from: config)
         visit.timersSwitchedOn(from: config, to: cleaned)
         do {
             try updateConfig(cleaned)

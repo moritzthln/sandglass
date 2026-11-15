@@ -15,24 +15,20 @@ import Foundation
 /// MainActor (Task 5).
 public final class RulesEngine {
     public private(set) var config: Config
-    public private(set) var state: EngineState
+    public internal(set) var state: EngineState
 
     private let clock: Clock
     private let calendar: Calendar
 
     /// Wall-clock arithmetic and every question about a group's time windows. See `WindowClock`
     /// for why the calendar lives there rather than here.
-    private let windows: WindowClock
+    let windows: WindowClock
 
     /// Effects produced outside `tick()`. Drained by the next tick, so an effect can
     /// arrive up to a second late but is never lost.
-    private var pendingEffects: [EngineEffect] = []
+    var pendingEffects: [EngineEffect] = []
     /// The queue as it stood before the last `updateConfig`, which `revertConfig` puts back.
     private var effectsBeforeEdit: [EngineEffect]?
-
-    /// Wrong access passwords, and the wait they have earned. In memory only: see
-    /// `AccessAttempts` for why a restart may forget them.
-    var accessAttempts = AccessAttempts()
 
     /// What a finished day was worth, and the one home for the ISO week both the freeze and
     /// the emergency pass are charged to. See `StreakScoring`.
@@ -55,10 +51,13 @@ public final class RulesEngine {
         // that one happened: a state off disk whose twins were written at a reading this machine
         // has not reached. See `EngineState.dropUptimeTwins`.
         self.state.dropUptimeTwinsIfStale(at: clock.uptime)
+        // A session with no end is one no code writes any more and nothing would ever end: no
+        // reap, no warning, no count. Only a very old or hand-edited file carries one.
+        self.state.sessions = self.state.sessions.filter { $0.value.endsAt != nil }
     }
 
     /// The moment every decision below is read at. Never runs backwards; see `EngineClock`.
-    private var now: Date { time.now }
+    var now: Date { time.now }
 
     /// That same moment with the uptime it was read at, which is how every deadline in the state
     /// is compared. See `ClockReading`.
@@ -87,14 +86,14 @@ public final class RulesEngine {
     }
 
     /// This moment's counters, as the arithmetic the decisions below are made of.
-    private var budget: GroupBudget { GroupBudget(state: state, reading: reading) }
+    var budget: GroupBudget { GroupBudget(state: state, reading: reading) }
 
     /// The three timed blocks as they stand this second: what is still running, and what has run
     /// out. Built per question, like `budget` above. See `ReliefBlocks`.
     private var relief: ReliefBlocks { ReliefBlocks(state: state, reading: reading) }
 
     /// A deadline `seconds` from now, as the pair it is stored as. See `EngineState.deadline`.
-    private func newDeadline(in seconds: TimeInterval) -> (wall: Date, uptime: TimeInterval) {
+    func newDeadline(in seconds: TimeInterval) -> (wall: Date, uptime: TimeInterval) {
         state.deadline(in: seconds, at: reading)
     }
 
@@ -172,8 +171,9 @@ public final class RulesEngine {
         // where it was: the hour runs, every other group opens, and this one goes on being judged
         // by everything below — the focus session, its own week, its budget. The pass is not spent
         // any less for it; what changes is only how far it reaches. A password group is opted out
-        // by its password. See `GroupSettings.shutsOutAppWideUnblocks`.
-        if activeEmergencyPassEnd != nil, !managed.settings.shutsOutAppWideUnblocks {
+        // by its password — a window-only one only while a strict window stands, because outside
+        // them it is an ordinary budget group. See `GroupSettings.shutsOutAppWideUnblocks`.
+        if activeEmergencyPassEnd != nil, !shutsOutAppWideUnblocks(managed.settings) {
             return .notManaged
         }
         if let endsAt = activeFocusSessionEnd {
@@ -192,7 +192,7 @@ public final class RulesEngine {
         // group falls through to everything below rather than out, so its dated block, its week and
         // its budget go on judging it, and the break itself is granted and runs its full length for
         // every other group.
-        if activeProtectionPauseEnd != nil, !managed.settings.shutsOutAppWideUnblocks {
+        if activeProtectionPauseEnd != nil, !shutsOutAppWideUnblocks(managed.settings) {
             return .notManaged
         }
         // Above the week, both kinds of it — see `datedBlock(_:)`.
@@ -234,6 +234,12 @@ public final class RulesEngine {
             countdownSeconds: countdown,
             budgetLine: budget.line(managed.groupID, managed.settings)
         )
+    }
+
+    /// Whether the pass and the break leave this group alone this second. See
+    /// `GroupSettings.shutsOutAppWideUnblocks(inStrictWindow:)`.
+    private func shutsOutAppWideUnblocks(_ settings: GroupSettings) -> Bool {
+        settings.shutsOutAppWideUnblocks(inStrictWindow: windows.strictWindow(settings, at: now) != nil)
     }
 
     /// The group's one-shot block, or `nil` when none is standing.
@@ -296,102 +302,6 @@ public final class RulesEngine {
         }
     }
 
-    private func grantOpen(_ managed: GroupLookup.Managed) -> ConsumeResult {
-        state.opensUsed[managed.groupID] = budget.opensUsed(managed.groupID) + 1
-        guard let seconds = budget.grantedSessionSeconds(managed.groupID, managed.settings) else {
-            return .granted(sessionSeconds: nil)   // gentle: allowed, but nothing to relock
-        }
-        let ends = newDeadline(in: TimeInterval(seconds))
-        state.sessions[managed.groupID] = ActiveSession(
-            groupID: managed.groupID,
-            startedAt: now,
-            endsAt: ends.wall,
-            endsAtUptime: ends.uptime,
-            warned: false
-        )
-        return .granted(sessionSeconds: seconds)
-    }
-
-    /// Opens a password group for its `accessMinutes`, and answers how long that is in seconds.
-    /// The same session an open starts, so it relocks, warns and ends exactly like one — only
-    /// nothing is spent from the day to buy it.
-    func startAccessSession(_ managed: GroupLookup.Managed) -> Int {
-        let seconds = managed.settings.accessMinutes * 60
-        let ends = newDeadline(in: TimeInterval(seconds))
-        state.sessions[managed.groupID] = ActiveSession(
-            groupID: managed.groupID, startedAt: now,
-            endsAt: ends.wall, endsAtUptime: ends.uptime, warned: false, byPassword: true
-        )
-        return seconds
-    }
-
-    /// End the group's session. `early` marks the user's own "I'm done" — the only way
-    /// to earn half an open back. Ending nothing is a no-op, and a session that already
-    /// ran out was ended by the catch-up above, so a late "I'm done" changes nothing.
-    public func endSession(targetID: String, early: Bool) {
-        advanceToNow()
-        guard let managed = lookup.managed(targetID: targetID) else { return }
-        end(managed, early: early)
-    }
-
-    /// The same, asked about the group rather than about something in it.
-    ///
-    /// What the "I'm done" button needs: a group made of live categories has no target to name,
-    /// and a button that quietly did nothing there would be the one place in the app where
-    /// ending a session early is impossible.
-    public func endSession(groupID: String, early: Bool) {
-        advanceToNow()
-        guard let settings = config.activeSettings(forGroup: groupID) else { return }
-        end(GroupLookup.Managed(groupID: groupID, settings: settings), early: early)
-    }
-
-    private func end(_ managed: GroupLookup.Managed, early: Bool) {
-        guard let session = state.sessions.removeValue(forKey: managed.groupID) else { return }
-        startCooldown(managed.groupID, managed.settings, from: now, uptime: reading.uptime)
-        // A password session was not bought with an open, so leaving it early earns none back.
-        guard early, managed.settings.earnBackEnabled, managed.settings.accessPassword == nil
-        else { return }
-        creditEarnBack(session, groupID: managed.groupID)
-    }
-
-    /// Half an open back for leaving inside the first half of the session.
-    ///
-    /// How much is left is the monotonic answer, so the half is a half of real time: neither
-    /// winding the clock forward (to claim the session is nearly over) nor back (to claim it has
-    /// barely started) changes what leaving now is worth.
-    private func creditEarnBack(_ session: ActiveSession, groupID: String) {
-        guard let endsAt = session.endsAt else { return }
-        let total = endsAt.timeIntervalSince(session.startedAt)
-        let elapsed = total - reading.secondsUntil(endsAt, uptime: session.endsAtUptime)
-        guard total > 0, elapsed < total / 2 else { return }
-        state.opensUsed[groupID] = max(0, budget.opensUsed(groupID) - 0.5)
-    }
-
-    /// The cooldown runs from the moment the session actually ended, not from the moment
-    /// the engine noticed. One that already elapsed while the Mac slept is not recorded:
-    /// waking up must not resurrect a wait that is over.
-    ///
-    /// `uptime` is that same anchor read on the monotonic clock, and it is optional because the
-    /// session it follows may have had no twin of its own — an old `state.json`, or a reboot. A
-    /// cooldown with no twin is a wall-clock cooldown, exactly as it was before.
-    private func startCooldown(
-        _ groupID: String,
-        _ settings: GroupSettings,
-        from anchor: Date,
-        uptime anchorUptime: TimeInterval?
-    ) {
-        guard settings.cooldownMinutes > 0 else { return }
-        let seconds = TimeInterval(settings.cooldownMinutes * 60)
-        let until = anchor.addingTimeInterval(seconds)
-        let untilUptime = anchorUptime.map { $0 + seconds }
-        guard reading.secondsUntil(until, uptime: untilUptime) > 0 else { return }
-        state.cooldownUntil[groupID] = until
-        // Assigning nil removes the key, which is what a cooldown with no twin has to leave
-        // behind: a stale twin from an earlier one would outlive the wait it belonged to.
-        state.cooldownUntilUptime[groupID] = untilUptime
-        if untilUptime != nil { state.uptimeAnchor = reading.uptime }
-    }
-
     /// The user closed a pause screen instead of pushing through it. The caller asserts
     /// that a pause screen was actually showing (Task 9 filters the raw signals).
     ///
@@ -438,23 +348,6 @@ public final class RulesEngine {
         state.usageSecondsToday[groupID, default: 0] += seconds
         // The catch-up above ran before the seconds landed, so the limit is re-checked here.
         reapSessionsOverTimeLimit()
-    }
-
-    /// Ends the session of every group that has used up its day, and announces each end.
-    ///
-    /// No cooldown, unlike every other way a session ends: the group is blocked until 03:00
-    /// anyway, so a wait measured in minutes would be a promise of an earlier return than the
-    /// user is actually getting. Run from the catch-up as well as from `recordUsage`, because
-    /// a limit can also be reached by lowering it below what the day has already spent.
-    private func reapSessionsOverTimeLimit() {
-        for groupID in state.sessions.keys.sorted() {
-            // A password group is not judged by its budgets, so its limit ends nothing either.
-            guard let settings = config.activeSettings(forGroup: groupID),
-                  settings.accessPassword == nil,
-                  budget.isTimeLimitReached(groupID, settings) else { continue }
-            state.sessions.removeValue(forKey: groupID)
-            pendingEffects.append(.sessionEnded(groupID: groupID))
-        }
     }
 
     // MARK: - The emergency pass
@@ -516,17 +409,6 @@ public final class RulesEngine {
     public var focusSessionEndsAt: Date? { activeFocusSessionEnd }
 
     private var activeFocusSessionEnd: Date? { relief.focusSessionEnd }
-
-    /// Relocks every group at once, announcing each end to the app.
-    private func endAllSessions() {
-        for groupID in state.sessions.keys.sorted() {
-            state.sessions.removeValue(forKey: groupID)
-            if let settings = config.settings(forGroup: groupID) {
-                startCooldown(groupID, settings, from: now, uptime: reading.uptime)
-            }
-            pendingEffects.append(.sessionEnded(groupID: groupID))
-        }
-    }
 
     // MARK: - Pausing protection
 
@@ -655,6 +537,7 @@ public final class RulesEngine {
         ReliefBlocks.expire(&state, at: reading)
         reapExpiredSessions()
         reapSessionsOverTimeLimit()
+        reapPasswordSessionsPastTheirWindow()
     }
 
     /// Called once a second by the app: hands over the effects the catch-up produced and
@@ -671,32 +554,6 @@ public final class RulesEngine {
     private func drainPendingEffects() -> [EngineEffect] {
         defer { pendingEffects.removeAll(); effectsBeforeEdit = nil }
         return pendingEffects
-    }
-
-    /// Relocks every session whose time is up. The cooldown is anchored at the session's
-    /// end, so a late reap does not hand out extra quiet time.
-    private func reapExpiredSessions() {
-        for groupID in state.sessions.keys.sorted() {
-            guard let session = state.sessions[groupID], let endsAt = session.endsAt,
-                  reading.hasPassed(endsAt, uptime: session.endsAtUptime) else { continue }
-            state.sessions.removeValue(forKey: groupID)
-            if let settings = config.settings(forGroup: groupID) {
-                startCooldown(groupID, settings, from: endsAt, uptime: session.endsAtUptime)
-            }
-            pendingEffects.append(.sessionEnded(groupID: groupID))
-        }
-    }
-
-    /// The heads-up before a session relocks, emitted once per session. A session that is
-    /// already over gets none: the reap above has just announced its end. How early it arrives
-    /// is `Config.expiryWarningSeconds`, and `nil` there means the user asked for none.
-    private func warningEffect(_ groupID: String) -> EngineEffect? {
-        guard let threshold = config.expiryWarningSeconds, threshold > 0 else { return nil }
-        guard let session = state.sessions[groupID], let endsAt = session.endsAt, !session.warned else { return nil }
-        let secondsLeft = reading.secondsUntil(endsAt, uptime: session.endsAtUptime)
-        guard secondsLeft > 0, secondsLeft <= Double(threshold) else { return nil }
-        state.sessions[groupID]?.warned = true
-        return .sessionWarning(groupID: groupID, secondsLeft: Int(secondsLeft.rounded(.up)))
     }
 
     /// Rolls into a new logical day once the clock has crossed the day's start; see `DayReset`.

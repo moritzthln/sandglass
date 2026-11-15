@@ -195,7 +195,11 @@ extension AppState {
     /// through the engine's counter, so the door is no way around the wait five wrong ones earn.
     public func unlockGroup(_ groupID: String, passcode: String) -> Bool {
         if config.settings(forGroup: groupID)?.accessPassword != nil {
-            guard ledger.verifyAccessPassword(passcode, groupID: groupID) == nil else { return false }
+            guard ledger.verifyAccessPassword(passcode, groupID: groupID) == nil else {
+                // The miss is counted in the state, and the state is what survives a relaunch.
+                finishMutation()
+                return false
+            }
             visit.markAnswered(forGroup: groupID, at: reading)
         } else {
             guard visit.accept(passcode: passcode, forGroup: groupID, in: config, at: reading)
@@ -203,6 +207,16 @@ extension AppState {
         }
         finishMutation()
         return true
+    }
+
+    /// The warning the settings lock shows before its passcode is removed, or `nil` when no group
+    /// opens with it. See `AccessCopy.removingSettingsPasscode(strands:)`.
+    public var settingsPasscodeRemovalWarning: String? {
+        AccessCopy.removingSettingsPasscode(
+            strands: config.groupsOpeningWithSettingsPasscode.map {
+                config.groupDisplayName(forGroup: $0) ?? $0
+            }
+        )
     }
 
     // MARK: - Leaving
@@ -219,19 +233,17 @@ extension AppState {
     /// The agent is what brings Sandglass back, so switching it off is the one way to stop every
     /// block at once — a password group whose password that did not ask for would be undone by a
     /// quit. **Any one** password group's password is enough: each of them is somebody who may
-    /// open its group, and the app stopping is no more than each could do to its own. Every group
-    /// is tried through the engine's counter, so this is no faster a way to guess than the prompt.
-    /// The emergency pass does not lift it, for the reason it does not open a password group.
+    /// open its group, and the app stopping is no more than each could do to its own. The entry is
+    /// one try through the engine's counter, so this is no faster a way to guess than the prompt:
+    /// a right password costs nothing, and a miss is one miss per secret, however many groups
+    /// share it — see `AccessAttempts.checkAny`. The emergency pass does not lift it, for the
+    /// reason it does not open a password group.
     func leavingRefusal(typed: String?) -> String? {
         let groups = config.passwordGroups
         guard !groups.isEmpty else { return nil }
         guard let typed, !typed.isEmpty else { return Self.leavingNeedsPassword }
-        var last: AccessAttempt?
-        for groupID in groups {
-            guard let failed = ledger.verifyAccessPassword(typed, groupID: groupID) else { return nil }
-            last = failed
-        }
-        return last.flatMap(AccessCopy.problem(after:)) ?? Self.leavingNeedsPassword
+        guard let failed = ledger.verifyAnyAccessPassword(typed, groupIDs: groups) else { return nil }
+        return AccessCopy.problem(after: failed) ?? Self.leavingNeedsPassword
     }
 
     static let leavingNeedsPassword =
