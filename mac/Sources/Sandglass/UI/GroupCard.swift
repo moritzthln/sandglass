@@ -65,7 +65,8 @@ struct GroupCard: View {
     ///
     /// A tap gesture yields where a button does not, so selecting and dragging can both live here.
     /// What a button gave for free has to be asked for instead — the trait, so the row is announced
-    /// as something to press, and the action, so it can be pressed without a mouse.
+    /// as something to press, the action, so VoiceOver can press it, and focus with Return and
+    /// Space, so the keyboard can.
     ///
     /// **No divider, and less padding around it.** A rule across the middle of a card divides two
     /// halves, and there are no halves left to divide — it cost 17 points, which is a third of
@@ -83,6 +84,13 @@ struct GroupCard: View {
         // the drag alike.
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
+        // And the keyboard, which a tap gesture does not reach: focusable so Tab can land here,
+        // and Return or Space to press it — what a button would have done by itself.
+        .focusable()
+        .onKeyPress(keys: [.return, .space]) { _ in
+            action()
+            return .handled
+        }
         .background(isSelected ? Palette.selection : Palette.card,
                     in: RoundedRectangle(cornerRadius: 10))
         .overlay(

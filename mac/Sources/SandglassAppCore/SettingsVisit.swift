@@ -29,6 +29,14 @@ struct SettingsVisit {
     /// `GroupLockGate` — a third gate rather than a field on the first, because "once per visit"
     /// is once per *group* here and the two must not be able to answer for each other.
     private var groups = GroupLockGate()
+    /// The last moment somebody did something in the window, or `nil` while none is open. See
+    /// `endIfIdle`.
+    private var lastActivity: ClockReading?
+
+    /// How long a visit may sit with nobody at it before it ends. Ten minutes, the owner's call:
+    /// long enough to read a page, short enough that a window left open over lunch is not a
+    /// standing unlock.
+    static let idleLimitSeconds: TimeInterval = 10 * 60
 
     // MARK: - The visit
 
@@ -38,6 +46,7 @@ struct SettingsVisit {
         lock.windowOpened(at: reading)
         wait.windowOpened(at: reading)
         groups.windowOpened(at: reading)
+        if lastActivity == nil { lastActivity = reading }
     }
 
     /// The window went away: the timers start again from the next open, and every passcode
@@ -46,6 +55,53 @@ struct SettingsVisit {
         lock.windowClosed()
         wait.windowClosed()
         groups.windowClosed()
+        lastActivity = nil
+    }
+
+    /// Somebody pressed, typed or scrolled in the window. Nothing else moves: activity only
+    /// postpones the end `endIfIdle` would otherwise reach.
+    mutating func noteActivity(at reading: ClockReading) {
+        guard lastActivity != nil else { return }
+        lastActivity = reading
+    }
+
+    /// Ends the visit — exactly as closing the window and opening it again would — once nobody
+    /// has been at it for `idleLimitSeconds`. `true` when it did.
+    ///
+    /// **The loophole it closes:** every wait and every code here is measured per visit, and a
+    /// visit lasted as long as the window stayed open. Unlocked once in the morning and left
+    /// open, it was unlocked at 23:40 too, which is the moment the lock exists for.
+    ///
+    /// **Waiting is not idleness.** A wait still counting down — the timer, a group's own wait,
+    /// the Unblock card's — is somebody sitting with the window on purpose, and ending the visit
+    /// under them would restart the wait they are sitting out. So the ten minutes start when the
+    /// last of them runs out, not at the last press. Worked out from the waits themselves rather
+    /// than from which ticks saw them counting, so a clock that moves in one jump — a Mac waking
+    /// from sleep — still gets its ten minutes after the wait. The emergency pass is read the same
+    /// way: it lifts the lock for its hour, and the door it ends in asks again anyway.
+    mutating func endIfIdle(
+        for config: Config, at reading: ClockReading, emergencyPassRunning: Bool
+    ) -> Bool {
+        guard let last = lastActivity else { return false }
+        if emergencyPassRunning || waitLeft(for: config, at: reading) > 0 {
+            lastActivity = reading
+            return false
+        }
+        let quiet = reading.secondsSince(last) - waitLeft(for: config, at: last)
+        guard quiet >= Self.idleLimitSeconds else { return false }
+        windowClosed()
+        windowOpened(at: reading)
+        return true
+    }
+
+    /// The longest of the waits still counting at `reading`, in seconds; zero when none is.
+    private func waitLeft(for config: Config, at reading: ClockReading) -> TimeInterval {
+        let gates = state(for: config, at: reading, emergencyPassRunning: false)
+        let groupWaits = groupLockStates(for: config, at: reading, emergencyPassRunning: false)
+            .values.compactMap(\.unlockSeconds)
+        let all = [gates.lockState.unlockSeconds, gates.breakWaitSecondsLeft].compactMap { $0 }
+            + groupWaits
+        return TimeInterval(all.max() ?? 0)
     }
 
     /// An edit is about to be saved: whichever waits it **starts** are not owed by this visit.

@@ -27,6 +27,10 @@ struct MainWindowView: View {
     /// The group a card is being dragged over, or `nil` when nothing is. Only the dashed marker
     /// reads it; where the groups actually sit is `Config.groupOrder`.
     @State private var dropTarget: String?
+    /// Holds the door back while a sheet is open on the page. See `DoorDeferral`.
+    @State private var deferral = DoorDeferral()
+    /// Whether a sheet is up on this window. Optional, so a preview with none still draws.
+    @Environment(WindowSheets.self) private var sheets: WindowSheets?
 
     enum Selection: Hashable {
         case settings
@@ -55,9 +59,16 @@ struct MainWindowView: View {
     /// the passcode holds it: the timer goes on refusing *changes* on the far side, because "have
     /// you sat with this for ten minutes" is not a question worth asking of somebody who came to
     /// read. The window keeps its own size and its own traffic lights either way.
+    ///
+    /// A door that closes while the page has a sheet open — the emergency pass running out, or an
+    /// idle visit ending — waits for the sheet to go, so what was typed into it is not destroyed
+    /// with the page. Nothing can be written meanwhile: the sheet's Save meets the same lock.
     var body: some View {
+        let showsDoor = deferral.showsDoor(
+            doorClosed: door.isClosed, sheetOpen: sheets?.isOpen ?? false
+        )
         Group {
-            if door.isClosed {
+            if showsDoor {
                 SettingsDoorView(appState: appState, close: close)
             } else {
                 shell
@@ -67,6 +78,7 @@ struct MainWindowView: View {
             minWidth: Metrics.minWindowWidth, maxWidth: .infinity,
             minHeight: Metrics.minWindowHeight, maxHeight: .infinity
         )
+        .onChange(of: showsDoor, initial: true) { _, drawn in deferral.drew(door: drawn) }
     }
 
     private var door: SettingsDoor {

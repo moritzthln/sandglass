@@ -40,6 +40,9 @@ struct CategoryPickerButton: View {
     /// One that is not installed here is still shown: it is in the list, and a row nobody can see
     /// is the thing this control was fixed to stop.
     let installed: [String: String]
+    /// Whether a wait is standing over the page. Unticking a category is a loosening, so its
+    /// switch goes dead; ticking one stays live. See `HeldControl`.
+    var tighteningOnly = false
     /// Answers with the reason the write did not happen, or `nil` when it did. Shown inside the
     /// popover for the reason the two sheets show their own: the page that carries refusals is
     /// the one this popover is covering, and a tick that silently springs back explains nothing.
@@ -51,6 +54,8 @@ struct CategoryPickerButton: View {
     /// Social" is a question about two of them at once.
     @State private var expanded: Set<String> = []
 
+    static let heldHelp = "A lock is running — this would make the group easier"
+
     /// The same pill as `Add website` and `Add apps`, with a chevron in it.
     ///
     /// It was a bare `.bordered` `Button` at the default control size carrying a `.callout` label,
@@ -60,7 +65,9 @@ struct CategoryPickerButton: View {
     /// not off the pill's insides: the button is what it is anchored to either way.
     var body: some View {
         HStack(spacing: 6) {
-            SecondaryPillButton(action: { open = true }) {
+            // A refusal belongs to the press that raised it, and a reopened popover is a new
+            // look at the list: one left over from last time reads as this time's.
+            SecondaryPillButton(action: { refusal = nil; open = true }) {
                 HStack(spacing: 6) {
                     Text("Categories: \(CategoryPicker.summary(of: picked, in: catalogue))")
                     Image(systemName: "chevron.down").imageScale(.small).foregroundStyle(.secondary)
@@ -113,6 +120,7 @@ struct CategoryPickerButton: View {
     private func row(_ category: DistractionCategory) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 6) {
+                let untickHeld = tighteningOnly && picked.contains(category.id)
                 Toggle(isOn: binding(category)) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(category.name).font(.callout)
@@ -123,6 +131,8 @@ struct CategoryPickerButton: View {
                         .foregroundStyle(.secondary)
                     }
                 }
+                .disabled(untickHeld)
+                .help(untickHeld ? Self.heldHelp : "")
                 Spacer(minLength: 4)
                 disclosure(category)
             }
@@ -193,6 +203,9 @@ struct CategoryTargetRow: View {
     /// What `AppScanner` found, so an app in the list can be named and one that is not installed
     /// can be left out.
     let installed: [String: String]
+    /// Whether a wait is standing over the page. Both of this row's removes loosen — unticking
+    /// the category and dropping one entry from it — so both go dead under one.
+    var tighteningOnly = false
     let onRemoveMember: (String) -> Void
     let onUntick: () -> Void
     @State private var expanded = false
@@ -239,8 +252,13 @@ struct CategoryTargetRow: View {
             Button(action: onUntick) { Image(systemName: "minus.circle") }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Remove the \(category.name) category from this group")
+                .help(
+                    tighteningOnly
+                        ? CategoryPickerButton.heldHelp
+                        : "Remove the \(category.name) category from this group"
+                )
                 .accessibilityLabel("Remove the \(category.name) category from this group")
+                .disabled(tighteningOnly)
         }
     }
 
@@ -278,6 +296,7 @@ struct CategoryTargetRow: View {
                         .foregroundStyle(.secondary)
                                 .help("Stop blocking \(member.label) in this group")
                         .accessibilityLabel("Stop blocking \(member.label) in this group")
+                        .disabled(tighteningOnly)
                     }
                 }
             }

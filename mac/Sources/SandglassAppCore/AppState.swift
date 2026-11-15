@@ -320,6 +320,7 @@ public final class AppState {
         // asked for on a clock. A hide that did not land is retried here and nowhere else.
         blocker.sweepBlockedApps()
         expirePasscodeResetIfDue()
+        endIdleSettingsVisitIfDue()
         finishMutation()
     }
 

@@ -77,12 +77,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// The invisible menu that makes the standard editing shortcuts work.
+    /// The invisible menu that makes the standard shortcuts work.
     ///
     /// Every item targets the first responder (`target: nil`), which is how the system's own
-    /// Edit menu behaves: whatever field holds the keyboard gets the verb.
+    /// menus behave: whatever field holds the keyboard gets the verb.
+    ///
+    /// ⌘W and ⌘Q are here too. Without them the window could be shut only with the red light, or
+    /// Escape at the door, and the app quit only from the footer's button. ⌘Q goes down that
+    /// button's own path, `terminate`, so it meets the same keep-alive question.
     private static func hiddenMainMenu() -> NSMenu {
         let main = NSMenu()
+        let appItem = NSMenuItem()
+        main.addItem(appItem)
+        let app = NSMenu(title: "Sandglass")
+        appItem.submenu = app
+        app.addItem(
+            withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)),
+            keyEquivalent: "w"
+        )
+        app.addItem(
+            withTitle: "Quit Sandglass", action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
         let editItem = NSMenuItem()
         main.addItem(editItem)
         let edit = NSMenu(title: "Edit")

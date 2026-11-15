@@ -162,7 +162,7 @@ struct CategoriesCard: View {
             // closed and the page says what happened to the edits it took. Answering `nil` here
             // read as "saved" and threw them away in silence.
             editing = nil
-            problem = "“\(edited.name)” was deleted while it was open. Nothing was written."
+            problem = ListUpsert.deletedWhileOpen(edited.name)
             return problem
         }
         // An entry taken out of a list leaves every exception naming it dangling; see
