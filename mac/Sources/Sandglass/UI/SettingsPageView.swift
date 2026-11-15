@@ -153,7 +153,10 @@ private struct GeneralCard: View {
             // neither is a lock — see `RulesEngine.updateConfig`.
             SettingsRow(
                 "Start of day",
-                help: "Daily open counts reset and streaks update at this time. Later than midnight by default, so scrolling after midnight still counts against the day before rather than tapping a fresh budget."
+                help: "Daily open counts reset and streaks update at this time. Later than midnight"
+                    + " by default, so scrolling after midnight still counts against the day before"
+                    + " rather than tapping a fresh budget. Time windows keep to the calendar: a"
+                    + " Monday window runs on Monday, whenever the day starts."
             ) {
                 // A time of day, so it is written the way every other time of day the user picks
                 // is: `FieldNotation.clock` for the keyboard, and `TimeWindowCopy.endpoint` — the

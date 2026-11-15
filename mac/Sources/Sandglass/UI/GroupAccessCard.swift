@@ -84,8 +84,11 @@ struct GroupAccessCard: View {
 
     private var caption: String? {
         guard settings.accessPassword != nil else { return nil }
-        let when = settings.passwordOnlyInStrictWindows ? "During a strict window it opens" : "Opens"
-        return "\(when) for \(settings.accessMinutes) min after the password."
+        guard settings.passwordOnlyInStrictWindows else {
+            return "Opens for \(settings.accessMinutes) min after the password."
+        }
+        return "During a strict window it opens for \(settings.accessMinutes) min after the password,"
+            + " and never past the end of that window."
     }
 
     private var sourcePicker: some View {

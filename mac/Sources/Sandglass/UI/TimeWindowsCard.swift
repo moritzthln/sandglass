@@ -180,7 +180,9 @@ struct TimeWindowsCard: View {
     /// sentence would name a group that is not on the screen. The half about overlapping is the
     /// same either way — it is a fact about windows rather than about who holds them.
     private var helpText: String {
-        let overlap = "Where two windows overlap, a break wins over a strict block; outside every window the group runs its ordinary budget."
+        let overlap = "Where two windows overlap, a break wins over a strict block; outside every"
+            + " window the group runs its ordinary budget. Time in a break window does not count"
+            + " toward the daily limit."
         return rule == nil
             ? "When this group behaves differently from the rest of its week. \(overlap)"
             : "The week a group put on this preset gets. \(overlap)"
