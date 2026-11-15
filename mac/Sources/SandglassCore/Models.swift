@@ -277,6 +277,14 @@ public struct GroupSettings: Codable, Equatable, Sendable {
     /// `AccessPassword` for the two sources it can come from.
     public var accessPassword: AccessPassword?
 
+    /// Whether `accessPassword` asks only inside the group's strict windows. Off — the default —
+    /// is the group that opens only with its password. On, the password is the way through a
+    /// strict window, and outside every window the group spends its budget like any other.
+    ///
+    /// Meaningless without a password, and kept rather than cleared when the password goes, so
+    /// switching it back on restores the same choice.
+    public var passwordOnlyInStrictWindows = false
+
     /// The day this group is hard-blocked until, as `DatedBlock` spells one, or `nil` for the
     /// ordinary case of no dated block at all.
     ///
@@ -344,7 +352,8 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         passcodeForgotStartedAt: ClockReading? = nil,
         ignoresAppWideUnblocks: Bool = false,
         blockedUntilDay: String? = nil,
-        accessPassword: AccessPassword? = nil
+        accessPassword: AccessPassword? = nil,
+        passwordOnlyInStrictWindows: Bool = false
     ) {
         self.presetID = presetID
         self.pauseSeconds = pauseSeconds
@@ -366,6 +375,7 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         self.ignoresAppWideUnblocks = ignoresAppWideUnblocks
         self.blockedUntilDay = blockedUntilDay
         self.accessPassword = accessPassword
+        self.passwordOnlyInStrictWindows = passwordOnlyInStrictWindows
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -374,7 +384,7 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         case enabled, rules
         case categories, categoryExceptions
         case lockMinutes, passcode, passcodeForgotStartedAt, ignoresAppWideUnblocks
-        case blockedUntilDay, accessPassword
+        case blockedUntilDay, accessPassword, passwordOnlyInStrictWindows
         /// Keys older files carry and this build no longer writes. `schedule`, `alwaysBlock` and
         /// `preset` are read on the way in — see `init(from:)`. The rest are not read at all and
         /// are listed only so the reason they are absent is written down beside the ones that
@@ -454,6 +464,9 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         try container.encodeIfPresent(blockedUntilDay, forKey: .blockedUntilDay)
         // Only where there is one, like the passcode above it.
         try container.encodeIfPresent(accessPassword, forKey: .accessPassword)
+        if passwordOnlyInStrictWindows {
+            try container.encode(true, forKey: .passwordOnlyInStrictWindows)
+        }
     }
 
     /// Decoded by hand for the fields that are not `Optional`: a `config.json` written before
@@ -523,6 +536,9 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         accessPassword = container.contains(.accessPassword)
             ? (try? container.decode(AccessPassword.self, forKey: .accessPassword)) ?? .settingsPasscode
             : nil
+        // Unreadable is off: the password then asks all the time, which is the stricter reading.
+        passwordOnlyInStrictWindows =
+            (try? container.decodeIfPresent(Bool.self, forKey: .passwordOnlyInStrictWindows)) == true
     }
 
     /// How long one correct password opens the group for: the group's own session length, or

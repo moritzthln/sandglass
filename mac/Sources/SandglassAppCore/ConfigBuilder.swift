@@ -512,6 +512,7 @@ public enum ConfigBuilder {
         // And the access password, which no preset carries either: picking one must not open a
         // group that was set to open only with its password.
         chosen.accessPassword = current.accessPassword
+        chosen.passwordOnlyInStrictWindows = current.passwordOnlyInStrictWindows
         return chosen
     }
 
@@ -549,6 +550,7 @@ public enum ConfigBuilder {
         probe.blockedUntilDay = nil
         // A fact about this group that no preset carries, so it says nothing about which one fits.
         probe.accessPassword = nil
+        probe.passwordOnlyInStrictWindows = false
         return probe
     }
 

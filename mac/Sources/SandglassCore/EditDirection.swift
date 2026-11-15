@@ -197,6 +197,10 @@ public enum EditDirection {
             // the group behind it, and removing it, replacing it or switching its source is the
             // way back out.
             && passcodeHolds(after.accessPassword, against: before.accessPassword)
+            // Narrowing the password to the strict windows opens the free hours to the budget,
+            // so it is a way out too; widening it back is a tightening anyone may make.
+            && (before.accessPassword == nil
+                || !after.passwordOnlyInStrictWindows || before.passwordOnlyInStrictWindows)
     }
 
     /// A passcode that was not there may be set; one that was there has to survive untouched.

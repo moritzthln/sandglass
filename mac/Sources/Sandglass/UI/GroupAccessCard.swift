@@ -51,6 +51,18 @@ struct GroupAccessCard: View {
                 ) {
                     sourcePicker.disabled(tighteningOnly)
                 }
+                Divider().overlay(Palette.hairline).padding(.vertical, 6)
+                SettingsRow(
+                    "Only during strict windows",
+                    help: "On: the password opens a strict window of this group, and outside every"
+                        + " window the group opens through its budget as usual. Off: the password"
+                        + " is asked for all the time."
+                ) {
+                    SettingsToggle(
+                        isOn: $settings.passwordOnlyInStrictWindows, label: "Only during strict windows"
+                    )
+                        .disabled(tighteningOnly && !settings.passwordOnlyInStrictWindows)
+                }
             }
             if case .custom = settings.accessPassword {
                 Divider().overlay(Palette.hairline).padding(.vertical, 6)
@@ -72,7 +84,8 @@ struct GroupAccessCard: View {
 
     private var caption: String? {
         guard settings.accessPassword != nil else { return nil }
-        return "Opens for \(settings.accessMinutes) min after the password."
+        let when = settings.passwordOnlyInStrictWindows ? "During a strict window it opens" : "Opens"
+        return "\(when) for \(settings.accessMinutes) min after the password."
     }
 
     private var sourcePicker: some View {
