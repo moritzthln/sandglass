@@ -38,15 +38,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the keep-alive dialogue on screen behind the user's back. The signal is what
     /// `installTerminationSignalHandler` is for, and it shuts down without consulting the policy.
     ///
+    /// **Why it waits.** The older copy's signal handler flushes the usage it was holding back,
+    /// and this one reads `state.json` next — so it waits for the older copy to be gone first,
+    /// and kills it only past a short deadline. See `InstanceHandover`.
+    ///
     /// Under `swift run` there is no bundle identifier and nothing matches, so a dev build never
     /// retires the installed copy and the installed copy never retires it.
     private static func retireOlderInstances() {
         guard let identifier = Bundle.main.bundleIdentifier else { return }
         let ours = NSRunningApplication.current.processIdentifier
-        for other in NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
-        where other.processIdentifier != ours {
-            kill(other.processIdentifier, SIGTERM)
-        }
+        let older = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+            .map(\.processIdentifier)
+            .filter { $0 != ours }
+        let killed = InstanceHandover.system.retire(older)
+        if !killed.isEmpty { NSLog("Sandglass: an older instance did not quit in time: \(killed)") }
     }
 
     /// The one-time move from the app's previous name — see `LegacyMigration`.
@@ -77,12 +82,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// The invisible menu that makes the standard editing shortcuts work.
+    /// The invisible menu that makes the standard shortcuts work.
     ///
     /// Every item targets the first responder (`target: nil`), which is how the system's own
-    /// Edit menu behaves: whatever field holds the keyboard gets the verb.
+    /// menus behave: whatever field holds the keyboard gets the verb.
+    ///
+    /// ⌘W and ⌘Q are here too. Without them the window could be shut only with the red light, or
+    /// Escape at the door, and the app quit only from the footer's button. ⌘Q goes down that
+    /// button's own path, `terminate`, so it meets the same keep-alive question.
     private static func hiddenMainMenu() -> NSMenu {
         let main = NSMenu()
+        let appItem = NSMenuItem()
+        main.addItem(appItem)
+        let app = NSMenu(title: "Sandglass")
+        appItem.submenu = app
+        app.addItem(
+            withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)),
+            keyEquivalent: "w"
+        )
+        app.addItem(
+            withTitle: "Quit Sandglass", action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
         let editItem = NSMenuItem()
         main.addItem(editItem)
         let edit = NSMenu(title: "Edit")

@@ -75,6 +75,21 @@ extension AppState {
         finishMutation()
     }
 
+    /// Somebody did something in the settings window: a key, a click, a scroll. Postpones the end
+    /// of an idle visit and nothing else, so it publishes nothing — it arrives with every
+    /// keystroke, and redrawing the window for each would be work with no change to show.
+    public func settingsActivity() {
+        visit.noteActivity(at: reading)
+    }
+
+    /// Ends a visit nobody has been at for ten minutes, from the loop. See
+    /// `SettingsVisit.endIfIdle`; the loop's own `finishMutation` publishes what it changed.
+    func endIdleSettingsVisitIfDue() {
+        _ = visit.endIfIdle(
+            for: config, at: reading, emergencyPassRunning: emergencyPassRunning
+        )
+    }
+
     /// The user has moved off one group's page — another group, or another page of the window.
     ///
     /// The third thing a visit has to hear about, beside the window coming up and going away, and
@@ -116,7 +131,12 @@ extension AppState {
     ///
     /// One edit for however many are due, because one edit is what the disk takes: two hours that
     /// happen to end in the same second must not cost two writes and two rollback chances.
+    ///
+    /// **A write the disk refused is retried once a minute, not once a second.** The rollback
+    /// leaves the hour due, and each try is a write, a recheck of the frontmost app and an Apple
+    /// event to a parked tab; a full disk turned that into the loop's whole second.
     func expirePasscodeResetIfDue() {
+        if let retryAt = passcodeResetRetryAt, clock.now < retryAt { return }
         var newConfig = config
         // Not while a group opens with it: the hour recovers the settings, and clearing the one
         // secret that opens that group would hand it to whoever sets the next one. See
@@ -129,7 +149,7 @@ extension AppState {
             due = true
         }
         guard due else { return }
-        saveEdit(newConfig)
+        passcodeResetRetryAt = saveEdit(newConfig) == nil ? nil : clock.now.addingTimeInterval(60)
     }
 
     // MARK: - One group's own lock

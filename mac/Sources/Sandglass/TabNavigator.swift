@@ -27,52 +27,83 @@ final class TabNavigator {
 
     private let store: Store
 
+    /// The refusals already written lately, so one that repeats every poll is one line a minute
+    /// rather than one a second. See `NavigationFailures`.
+    private var failures = NavigationFailures()
+
     init(store: Store) {
         self.store = store
     }
 
-    /// Moves the tab. `false` means the browser could not be told, and the caller is left to find
-    /// a worse block than a navigation — the overlay, or nothing.
+    /// What became of one navigation.
+    enum Outcome: Equatable {
+        /// The tab went.
+        case sent
+        /// The tab is no longer the one that was read, so it was left where it is. Nothing failed:
+        /// the next poll reads the tab that is in front now and decides on that.
+        case tabMovedOn
+        /// The browser could not be told, and the caller is left to find a worse block than a
+        /// navigation — the overlay, or nothing.
+        case refused
+    }
+
+    /// Moves the tab in front — but only while it is still the tab `page` read, when the reading
+    /// is one a guard can be checked against. See
+    /// `KnownBrowser.navigationScriptSource(to:ifShowing:tabID:)`.
     ///
     /// `what` is what the app was trying to do, in the words the log line carries: this is read
     /// months later by somebody who only knows that a page did not come back, and "show the block
     /// page" and "go back to the page" are opposite failures with the same error number on them.
     @discardableResult
-    func send(_ browser: KnownBrowser, to address: String, doing what: String) -> Bool {
-        guard let refusal = refusal(sending: browser, to: address) else { return true }
+    func send(
+        _ browser: KnownBrowser, to address: String, doing what: String,
+        ifShowing expected: String? = nil, tabID: String? = nil
+    ) -> Outcome {
+        let source = expected.flatMap {
+            browser.navigationScriptSource(to: address, ifShowing: $0, tabID: tabID)
+        } ?? browser.navigationScriptSource(to: address)
+        let refusal: String
+        switch run(source, for: browser) {
+        case .success(let answer):
+            return answer == KnownBrowser.movedOnAnswer ? .tabMovedOn : .sent
+        case .failure(let reason):
+            refusal = reason.text
+        }
         // Best-effort, like every other append: a failed navigation is already bad enough without
-        // a failed write about it becoming a second problem.
+        // a failed write about it becoming a second problem. And once a minute for the same line:
+        // a browser that refuses behind an inactive window is asked again on every poll.
+        let detail = "couldn't \(what) — \(refusal)"
+        guard failures.shouldRecord(detail, now: Date()) else { return .refused }
         store.appendEvent(
-            Event(
-                ts: Date(),
-                kind: EventKind.navigationFailed,
-                groupID: nil,
-                detail: "couldn't \(what) — \(refusal)"
-            )
+            Event(ts: Date(), kind: EventKind.navigationFailed, groupID: nil, detail: detail)
         )
-        return false
+        return .refused
     }
 
-    /// Why the browser would not go, or `nil` when it went.
+    /// A refusal's words, as an error so `run` can answer either.
+    private struct Refusal: Error {
+        let text: String
+    }
+
+    /// What the script answered, or why the browser would not go.
     ///
     /// Compiled per address, unlike the watcher's four fixed scripts: the address is baked into the
     /// source, so there is nothing to cache. Compilation of one line costs far less than the Apple
     /// event it carries, and this runs on a user's decision rather than on a 1 Hz clock.
-    private func refusal(sending browser: KnownBrowser, to address: String) -> String? {
-        guard let source = browser.navigationScriptSource(to: address) else {
-            return "\(browser.name) has no way to be told where to go"
+    private func run(_ source: String?, for browser: KnownBrowser) -> Result<String?, Refusal> {
+        guard let source else {
+            return .failure(Refusal(text: "\(browser.name) has no way to be told where to go"))
         }
         guard let script = NSAppleScript(source: source) else {
-            return "the script for \(browser.name) would not compile"
+            return .failure(Refusal(text: "the script for \(browser.name) would not compile"))
         }
         var error: NSDictionary?
-        script.executeAndReturnError(&error)
-        guard let error else { return nil }
-        let reason = Self.reason(browser, error)
+        let result = script.executeAndReturnError(&error)
+        guard let error else { return .success(result.stringValue) }
         // Kept as well as recorded. It costs nothing, and a Mac being watched with `log stream`
         // during a manual test is one more place the failure can turn up.
         NSLog("Sandglass: could not navigate \(browser.name) — \(error)")
-        return reason
+        return .failure(Refusal(text: Self.reason(browser, error)))
     }
 
     /// AppleScript's own two words for what went wrong, and nothing of the dictionary around them.

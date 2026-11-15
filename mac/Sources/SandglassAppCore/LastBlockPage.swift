@@ -1,6 +1,6 @@
 import Foundation
 
-/// The browser this app last saw sitting on its own block page.
+/// The browsers this app has seen sitting on its own block page, newest last.
 ///
 /// One fact, and it exists because of one blind spot: **the poll only ever reads the frontmost
 /// browser.** That is right for the poll — a tab nobody is looking at is not urgent — but one
@@ -36,18 +36,26 @@ import Foundation
 /// else — the tab was closed, or navigated away from. A second browser being used normally does
 /// not clear it, because a page parked in Chrome is still parked in Chrome while somebody reads
 /// the news in Safari.
+///
+/// **Every browser, not the last one.** A block page parked in Chrome and then one in Safari are
+/// two tabs an edit can be about, and a single slot let the Safari sighting overwrite the Chrome
+/// one, which then stood over a site that was no longer blocked until somebody switched to it.
 public struct LastBlockPage: Equatable, Sendable {
 
-    private var seenIn: String?
+    private var seenIn: [String] = []
 
     public init() {}
 
-    /// The browser to ask, or `nil` when no block page has been seen anywhere.
-    public var browserID: String? { seenIn }
+    /// The browser seen most recently, or `nil` when no block page has been seen anywhere.
+    public var browserID: String? { seenIn.last }
+
+    /// Every browser to ask, oldest sighting first.
+    public var browserIDs: [String] { seenIn }
 
     /// The poll found this browser sitting on our block page.
     public mutating func record(browserID: String) {
-        seenIn = browserID
+        seenIn.removeAll { $0 == browserID }
+        seenIn.append(browserID)
     }
 
     /// This browser is showing something else, so whatever was parked in it is not any more.
@@ -57,7 +65,6 @@ public struct LastBlockPage: Equatable, Sendable {
     /// no window, no permission, or Sandglass itself in front — since "nobody answered" is not
     /// "it moved on", and that is the exact moment both callers arrive.
     public mutating func forget(browserID: String) {
-        guard seenIn == browserID else { return }
-        seenIn = nil
+        seenIn.removeAll { $0 == browserID }
     }
 }

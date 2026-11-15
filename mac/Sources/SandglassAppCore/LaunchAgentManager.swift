@@ -55,6 +55,15 @@ public final class LaunchAgentManager: KeepAliveManaging {
     /// run that is not the installed app: a test that loaded a job would leave one behind.
     public let talksToLaunchd: Bool
 
+    /// How `launchctl` is reached. `.system` everywhere but a test.
+    let launchctl: Launchctl
+
+    /// Whether this process is the agent's own job — the one `bootout` would terminate.
+    ///
+    /// launchd names the job it started in `XPC_SERVICE_NAME`. A copy started by hand or by
+    /// `install.sh` carries some other name or none.
+    let runsAsTheAgent: Bool
+
     /// The app's own: the real LaunchAgents folder and this bundle, unless the environment
     /// redirects it.
     public convenience init() {
@@ -66,16 +75,25 @@ public final class LaunchAgentManager: KeepAliveManaging {
         self.init(
             directory: directory,
             bundleURL: Bundle.main.bundleURL,
-            talksToLaunchd: override == nil
+            talksToLaunchd: override == nil,
+            runsAsTheAgent: ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] == Self.label
         )
     }
 
     /// The seam a test builds on: a throwaway directory, a bundle path that need not exist, and
-    /// `launchctl` left out of it entirely.
-    public init(directory: URL, bundleURL: URL, talksToLaunchd: Bool = false) {
+    /// `launchctl` left out of it entirely — or stood in for, when `launchctl` is handed in.
+    public init(
+        directory: URL,
+        bundleURL: URL,
+        talksToLaunchd: Bool = false,
+        launchctl: Launchctl = .system,
+        runsAsTheAgent: Bool = false
+    ) {
         self.directory = directory
         self.bundleURL = bundleURL
         self.talksToLaunchd = talksToLaunchd
+        self.launchctl = launchctl
+        self.runsAsTheAgent = runsAsTheAgent
     }
 
     public var plistURL: URL {
@@ -110,8 +128,8 @@ public final class LaunchAgentManager: KeepAliveManaging {
         // Booted out first so an install over an existing agent re-reads the plist rather than
         // failing with "service already loaded". A job that is not loaded refuses this, which
         // is why the result is ignored.
-        _ = Self.launchctl(["bootout", Self.serviceTarget])
-        let result = Self.launchctl(["bootstrap", Self.domainTarget, plistURL.path])
+        _ = launchctl.run(["bootout", Self.serviceTarget])
+        let result = launchctl.run(["bootstrap", Self.domainTarget, plistURL.path])
         guard result.status != 0 else { return nil }
         // The plist goes back off disk. Leaving it would have `isInstalled` answer yes while
         // launchd knows nothing about the job, and the toggle's entire purpose is to report
@@ -128,33 +146,58 @@ public final class LaunchAgentManager: KeepAliveManaging {
     /// deleting the plist anyway would have `isInstalled` say "off" while a live job kept
     /// restarting the app. That is the same lie `install()` refuses to tell, in the other
     /// direction, and the more annoying one: a user who turned it off and watched the app come
-    /// back would have no way left to find the thing doing it.
+    /// back would have no way left to find the thing doing it. So a refused `bootout` puts the
+    /// plist back.
+    ///
+    /// **The plist goes first and `bootout` last**, because `bootout` may be the last thing this
+    /// process does. When Sandglass is the agent's own job, booting it out terminates Sandglass:
+    /// launchd sends `SIGTERM` and waits. The order used to be the other way round, and the plist
+    /// was never removed — the process was gone before it got there — so the agent came back at
+    /// the next login with the toggle long since switched off. And `bootout` was waited for on the
+    /// main thread, which is the thread the `SIGTERM` handler runs on: the app could not flush,
+    /// and launchd killed it at the end of its timeout. Now the self-owned case starts `bootout`
+    /// and returns; the signal that follows is the ordinary way out, and it flushes. See
+    /// `Launchctl.startDetached`.
     private func uninstall() -> String? {
-        if talksToLaunchd {
-            // A plist that was never loaded — written by an earlier run that failed at exactly
-            // this step — still has to be removable, so a refusal here is not an error. What is
-            // an error is the job still being there afterwards, which is what is checked next.
-            _ = Self.launchctl(["bootout", Self.serviceTarget])
-            if let alive = Self.loadedJobDescription() {
-                return "Couldn't disable — try again. launchd still has the job: \(alive)"
-            }
-        }
+        let saved = try? Data(contentsOf: plistURL)
         do {
             if isInstalled { try FileManager.default.removeItem(at: plistURL) }
-            return nil
         } catch {
             return "Couldn't remove the startup item — \(error.localizedDescription)"
         }
+        guard talksToLaunchd else { return nil }
+        if runsAsTheAgent {
+            guard launchctl.startDetached(["bootout", Self.serviceTarget]) else {
+                restore(saved)
+                return "Couldn't disable — try again. launchctl could not be started."
+            }
+            return nil
+        }
+        // A plist that was never loaded — written by an earlier run that failed at exactly
+        // this step — still has to be removable, so a refusal here is not an error. What is
+        // an error is the job still being there afterwards, which is what is checked next.
+        _ = launchctl.run(["bootout", Self.serviceTarget])
+        if let alive = loadedJobDescription() {
+            restore(saved)
+            return "Couldn't disable — try again. launchd still has the job: \(alive)"
+        }
+        return nil
+    }
+
+    /// Puts a removed plist back, because launchd kept the job it describes.
+    private func restore(_ saved: Data?) {
+        guard let saved else { return }
+        try? saved.write(to: plistURL, options: .atomic)
     }
 
     /// What launchd says about our job, or `nil` when it has never heard of it.
     ///
     /// `launchctl print` exits non-zero for an unknown service, which is the whole question. Its
     /// output is a page of properties; only the first line is worth showing anyone.
-    private static func loadedJobDescription() -> String? {
-        let result = launchctl(["print", serviceTarget])
+    private func loadedJobDescription() -> String? {
+        let result = launchctl.run(["print", Self.serviceTarget])
         guard result.status == 0 else { return nil }
-        return result.output.split(separator: "\n").first.map(String.init) ?? serviceTarget
+        return result.output.split(separator: "\n").first.map(String.init) ?? Self.serviceTarget
     }
 
     // MARK: - Following the app around
@@ -214,7 +257,7 @@ public final class LaunchAgentManager: KeepAliveManaging {
     /// which is the one thing the redirect exists to prevent.
     private var isRegistered: Bool {
         guard talksToLaunchd else { return true }
-        return Self.loadedJobDescription() != nil
+        return loadedJobDescription() != nil
     }
 
     /// The job on disk, or `nil` when there is no readable plist.
@@ -284,32 +327,10 @@ public final class LaunchAgentManager: KeepAliveManaging {
     /// run. Used by `retireLegacyAgent`, which lives with the migration it belongs to.
     var defaultLegacyBootout: (String) -> Void {
         guard talksToLaunchd else { return { _ in } }
-        return { label in _ = Self.launchctl(["bootout", "\(Self.domainTarget)/\(label)"]) }
+        let launchctl = launchctl
+        return { label in _ = launchctl.run(["bootout", "\(Self.domainTarget)/\(label)"]) }
     }
 
     private static var domainTarget: String { "gui/\(getuid())" }
     private static var serviceTarget: String { "gui/\(getuid())/\(label)" }
-
-    /// Runs `launchctl` and reports what it said. Failures are returned rather than thrown:
-    /// every caller turns them into a line for the settings screen, not into a crash.
-    private static func launchctl(_ arguments: [String]) -> (status: Int32, output: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        process.arguments = arguments
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        do {
-            try process.run()
-        } catch {
-            return (-1, error.localizedDescription)
-        }
-        // Read before waiting: `launchctl` writes little, but a pipe that fills while nobody
-        // reads it deadlocks the child, and this one runs on the main thread.
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        let output = String(decoding: data, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return (process.terminationStatus, output.isEmpty ? "launchctl exited \(process.terminationStatus)" : output)
-    }
 }

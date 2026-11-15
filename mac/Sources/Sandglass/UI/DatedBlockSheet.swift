@@ -18,8 +18,12 @@ struct DatedBlockSheet: View {
     let today: String
     /// The day already set, if there is one, so re-picking opens where the block currently ends.
     let current: String?
-    /// The chosen day, as `DatedBlock` spells one.
-    let onDone: (String) -> Void
+    /// The first day that may be picked, as `DatedBlockPick.earliest` answers it — after the day
+    /// standing, when a wait holds everything that would pull it in. `nil` means tomorrow.
+    var earliest: String?
+    /// The chosen day, as `DatedBlock` spells one. Answers with the reason it did not land, or
+    /// `nil` when it did, and only then does the sheet close: a refused date stays on screen.
+    let onDone: (String) -> String?
     let onCancel: () -> Void
 
     /// Midday on the day the calendar is showing — noon rather than midnight, so no zone and no
@@ -28,15 +32,16 @@ struct DatedBlockSheet: View {
     /// Whether `picked` has been seeded from `today`. `onAppear` rather than an initialiser,
     /// because a `@State` default is evaluated before the view has its properties.
     @State private var seeded = false
+    @State private var refusal: String?
 
     private var calendar: Calendar { .current }
 
     /// The day the calendar is currently on, in the app's own spelling.
     private var day: String { DatedBlock.day(picked: picked, calendar: calendar) }
 
-    /// Tomorrow, as a date the picker can be bounded by.
-    private var earliest: Date {
-        DatedBlock.day(.day, from: today)
+    /// The first day that may be picked, as a date the picker can be bounded by.
+    private var earliestDate: Date {
+        (earliest ?? DatedBlock.day(.day, from: today))
             .flatMap { DatedBlock.date($0, calendar: calendar) }
             ?? Date()
     }
@@ -47,7 +52,7 @@ struct DatedBlockSheet: View {
             DatePicker(
                 "Blocked until",
                 selection: $picked,
-                in: earliest...,
+                in: earliestDate...,
                 displayedComponents: .date
             )
             .datePickerStyle(.graphical)
@@ -58,11 +63,17 @@ struct DatedBlockSheet: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+            if let refusal {
+                Label(refusal, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 10) {
                 Spacer(minLength: 0)
                 Button("Cancel", role: .cancel) { onCancel() }
                     .keyboardShortcut(.cancelAction)
-                Button(DatedBlock.rowText(day)) { onDone(day) }
+                Button(DatedBlock.rowText(day)) { refusal = onDone(day) }
                     .keyboardShortcut(.defaultAction)
             }
             .padding(.top, 2)
@@ -78,7 +89,7 @@ struct DatedBlockSheet: View {
         seeded = true
         picked = current
             .flatMap { DatedBlock.date($0, calendar: calendar) }
-            .map { max($0, earliest) }
-            ?? earliest
+            .map { max($0, earliestDate) }
+            ?? earliestDate
     }
 }

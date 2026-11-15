@@ -57,6 +57,14 @@ struct PresetsCard: View {
                 } onCancel: {
                     editing = nil
                 }
+            } else {
+                // The fallback `CategoriesCard` already has: a sheet that renders nothing is a
+                // sheet with no way out of it.
+                VStack(spacing: 12) {
+                    Text("That preset is no longer there.")
+                    Button("Close") { editing = nil }.keyboardShortcut(.defaultAction)
+                }
+                .padding(24)
             }
         }
         .alert(
@@ -146,16 +154,18 @@ struct PresetsCard: View {
     /// the sheet is covering.
     private func save(_ edited: NamedPreset, isNew: Bool) -> String? {
         var config = appState.config
-        if isNew {
-            config.presets.append(edited)
-        } else if let index = config.presets.firstIndex(where: { $0.id == edited.id }) {
-            config.presets[index] = edited
-        } else {
+        guard let presets = ListUpsert.upserting(
+            edited, into: config.presets, appendsWhenMissing: isNew
+        ) else {
             // Deleted from somewhere else while the sheet was open. There is nothing to write
-            // back to, and re-adding it would resurrect a preset the user threw away.
+            // back to, and re-adding it would resurrect a preset the user threw away — so the
+            // sheet closes and the card says what happened to the edits it took. Answering `nil`
+            // here read as "saved" and threw them away in silence; `CategoriesCard` says so too.
             editing = nil
-            return nil
+            problem = ListUpsert.deletedWhileOpen(edited.name)
+            return problem
         }
+        config.presets = presets
         problem = appState.applyConfigEdit(config)
         if problem == nil { editing = nil }
         return problem
@@ -198,7 +208,13 @@ struct PresetsCard: View {
     /// there is one path to the disk and one place a refusal is reported from.
     private func write(_ presetID: String, _ change: (inout NamedPreset) -> Void) {
         var config = appState.config
-        guard let index = config.presets.firstIndex(where: { $0.id == presetID }) else { return }
+        guard let index = config.presets.firstIndex(where: { $0.id == presetID }) else {
+            // Gone while its name was being typed. A refusal left from an earlier press would
+            // otherwise keep the rename field open over a row that is no longer there.
+            problem = nil
+            renaming = nil
+            return
+        }
         change(&config.presets[index])
         problem = appState.applyConfigEdit(config)
     }

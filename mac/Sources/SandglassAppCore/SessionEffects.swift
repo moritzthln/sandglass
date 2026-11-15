@@ -56,9 +56,20 @@ struct SessionEffects {
         }
     }
 
-    /// A session is over, however it ended: log it, and send the group's apps away.
+    /// A session is over, however it ended: log it, and send the group's apps away — unless the
+    /// group's next open spends itself.
+    ///
+    /// A group with no wait meets the end of a session with `.opensByItself`: the app in front
+    /// would be hidden only for its next activation to spend an open and put it straight back.
+    /// It is decided again instead, which spends that open on the spot and leaves it where it is —
+    /// the same thing arriving at it would have done. Every other answer still sends the apps away:
+    /// a screen, a cooldown or an emptied budget is what the user meets next.
     func sessionEnded(groupID: String) {
         ledger.appendEvent(EventKind.sessionEnd, groupID: groupID)
+        if engine.decision(groupID: groupID) == .opensByItself {
+            blocker.recheckFrontmost()
+            return
+        }
         hideApps(inGroup: groupID)
     }
 

@@ -21,6 +21,9 @@ protocol PageBlockerHost: AnyObject {
     func wasRecentlyHidden(_ bundleID: String) -> Bool
     /// A block page's "Enter password" was pressed. `target` is the page it is about.
     func askForPassword(name: String, target: String, browser: NSRunningApplication)
+    /// The page `target` is no longer held by its password, so a prompt about it has nothing
+    /// left to ask.
+    func passwordNoLongerAsked(target: String)
 }
 
 /// The web half of the blocker: what page is in front, and what happens to a tab that is blocked.
@@ -75,8 +78,8 @@ final class PageBlocker {
     /// it again. See `EarnedOpens`.
     private var earned = EarnedOpens()
 
-    /// The browser the poll last saw sitting on our own block page. Which browser to ask about a
-    /// parked tab, at the moment there is none in front to ask. See `LastBlockPage`.
+    /// The browsers the poll has seen sitting on our own block page. Which browsers to ask about
+    /// a parked tab, at the moment there is none in front to ask. See `LastBlockPage`.
     private var lastBlockPage = LastBlockPage()
 
     /// The "Enter password" presses already answered, so one press raises one prompt rather than
@@ -234,7 +237,7 @@ final class PageBlocker {
             // same page again. The wait goes with it: a clearance that outlived the block it was
             // earned against would be a page permanently exempt from its own group.
             cleared.forget(in: page.bundleID)
-            sentAway.forget()
+            sentAway.forget(tab: page.tab)
             earned.forget(target: url, tab: page.tab)
             return
         }
@@ -272,7 +275,7 @@ final class PageBlocker {
             // Written down before the next tick can ask: a gentle group starts no session, so the
             // engine will still say `pause` about this page one second from now.
             cleared.clear(url, in: page.bundleID)
-            sentAway.forget()
+            sentAway.forget(tab: page.tab)
         case .denied(let decision):
             let presentation = BlockPresentation.for(
                 decision: decision, info: appState.webDisplayInfo(forURL: url)
@@ -281,7 +284,7 @@ final class PageBlocker {
                 // Refused, and by the time it was refused there was nothing left to block. The
                 // walk still ends on the site rather than on a page about a block that is over.
                 cleared.forget(in: page.bundleID)
-                sentAway.forget()
+                sentAway.forget(tab: page.tab)
                 return
             }
             sendAway(from: url, opening: page.address, on: page, showing: model)
@@ -321,10 +324,17 @@ final class PageBlocker {
            let ends = query.endsAt, ripening < ends {
             query.endsAt = ripening
         }
-        guard navigator.send(
+        switch navigator.send(
             browser, to: BlockPage.address(page: blockPage, query: query),
-            doing: "show the block page"
-        ) else {
+            doing: "show the block page", ifShowing: page.guardAddress, tabID: page.tabID
+        ) {
+        case .sent:
+            break
+        case .tabMovedOn:
+            // Somebody switched tabs between the reading and this. The tab in front now is not the
+            // one that was decided on, and the next poll decides on it instead.
+            return
+        case .refused:
             // Automation refused, or the browser would not answer. A screen is a worse block than
             // a navigation and a better one than nothing at all.
             raiseIfLookedAt(model, from: url, on: page)
@@ -393,7 +403,7 @@ final class PageBlocker {
         _ query: BlockPage.Query, on page: BrowserWatcher.Page, with appState: AppState
     ) {
         // The navigation this class asked for has arrived.
-        sentAway.forget()
+        sentAway.forget(tab: page.tab)
         // And the page is on screen, which is what makes the wait behind it spendable. A claim is
         // spent by *arriving* at the target, and until this line has run a reading of the target is
         // a tab that never left it — see `EarnedOpens.sighted`.
@@ -402,22 +412,30 @@ final class PageBlocker {
             decision: appState.blockDecision(forURL: query.target),
             info: appState.webDisplayInfo(forURL: query.target)
         )
+        // A prompt raised from this page is about a password that no longer holds it, once the
+        // engine stops asking for one — whatever ends the block, the window closes with it.
+        if case .password = presentation.model?.mode {} else {
+            host.passwordNoLongerAsked(target: query.target)
+        }
         guard let model = presentation.model else {
             // The engine is the reason nothing stands in the way, so nothing here has to keep
             // quiet about this address either.
-            if navigateBack(to: query, in: page.known) { cleared.forget(in: page.bundleID) }
+            if navigateBack(to: query, on: page) { cleared.forget(in: page.bundleID) }
             earned.forget(target: query.target, tab: page.tab)
             return
         }
         // Here the clearance *is* the reason, so it stays: forgetting it would send the tab home
         // and block it again on the next tick.
         guard !cleared.holds(query.target, in: page.bundleID) else {
-            navigateBack(to: query, in: page.known)
+            navigateBack(to: query, on: page)
             return
         }
         // The password page's button is a link back to this page with a fresh nonce on it, and
-        // this is where the press is seen. The prompt is ours, never a field on the page.
-        if case .password = model.mode, query.mode == .password, asks.isNew(query.ask) {
+        // this is where the press is seen. The prompt is ours, never a field on the page — and
+        // only over the browser it was pressed in: a parked tab re-read after an edit made in the
+        // settings window must not throw a password window over the settings.
+        if case .password = model.mode, query.mode == .password, page.running.isActive,
+           asks.isNew(query.ask) {
             host.askForPassword(name: query.name, target: query.target, browser: page.running)
         }
         let shapeChanged = BlockPage.Mode(model.mode) != query.mode
@@ -444,24 +462,28 @@ final class PageBlocker {
     /// quarter of an hour, and a remembered address is a guess about a tab they may have taken
     /// somewhere else in the meantime — navigating on that guess would move a tab out from under
     /// them.
+    ///
+    /// **Every browser seen parked, not the last one.** A block page in Chrome and another in
+    /// Safari are both about the edit.
     func resolveParkedBlockPage(with appState: AppState) {
-        guard let browserID = lastBlockPage.browserID else { return }
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         // The poll owns the browser the user is actually looking at, and it runs this same second.
         // Asking twice would be a second Apple event and a second navigation for one change.
-        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier != browserID else { return }
-        guard let parked = parkedBlockPage() else { return }
-        watchBlockPage(parked.query, on: parked.page, with: appState)
+        for browserID in lastBlockPage.browserIDs where browserID != front {
+            guard let parked = parkedBlockPage(in: browserID) else { continue }
+            watchBlockPage(parked.query, on: parked.page, with: appState)
+        }
     }
 
-    /// The browser last seen on our block page, together with what it is showing **now** — or
-    /// `nil` when there is none, it will not answer, or it has gone somewhere else since.
+    /// What a browser seen on our block page is showing **now** — or `nil` when it will not
+    /// answer, or it has gone somewhere else since.
     ///
     /// A tab that moved on is forgotten here rather than acted on, which is what makes a record
     /// with no expiry safe to keep: the worst a stale one can cost is a single Apple event.
-    private func parkedBlockPage() -> (page: BrowserWatcher.Page, query: BlockPage.Query)? {
-        guard let browserID = lastBlockPage.browserID,
-              let page = watcher.page(ofBrowserWith: browserID)
-        else { return nil }
+    private func parkedBlockPage(
+        in browserID: String
+    ) -> (page: BrowserWatcher.Page, query: BlockPage.Query)? {
+        guard let page = watcher.page(ofBrowserWith: browserID) else { return nil }
         guard case .blockPage(let query) = page.sighting else {
             lastBlockPage.forget(browserID: browserID)
             return nil
@@ -475,11 +497,13 @@ final class PageBlocker {
     /// Answers whether the browser went. What the caller does with a clearance depends on *why*
     /// the tab is going home, which is the caller's question and not this one's.
     @discardableResult
-    private func navigateBack(to query: BlockPage.Query, in browser: KnownBrowser) -> Bool {
-        guard navigator.send(browser, to: query.opens, doing: "go back to the page") else {
-            return false
-        }
-        sentAway.forget()
+    private func navigateBack(to query: BlockPage.Query, on page: BrowserWatcher.Page) -> Bool {
+        let outcome = navigator.send(
+            page.known, to: query.opens, doing: "go back to the page",
+            ifShowing: page.guardAddress, tabID: page.tabID
+        )
+        guard outcome == .sent else { return false }
+        sentAway.forget(tab: page.tab)
         return true
     }
 }

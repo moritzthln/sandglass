@@ -27,6 +27,8 @@ public final class RulesEngine {
     /// Effects produced outside `tick()`. Drained by the next tick, so an effect can
     /// arrive up to a second late but is never lost.
     var pendingEffects: [EngineEffect] = []
+    /// The queue as it stood before the last `updateConfig`, which `revertConfig` puts back.
+    private var effectsBeforeEdit: [EngineEffect]?
 
     /// What a finished day was worth, and the one home for the ISO week both the freeze and
     /// the emergency pass are charged to. See `StreakScoring`.
@@ -200,7 +202,7 @@ public final class RulesEngine {
         // makes "free 20:00–22:00" expressible inside an otherwise blocked evening.
         if windows.isInBreakWindow(managed.settings, at: now) { return .notManaged }
         if let window = windows.strictWindow(managed.settings, at: now) {
-            let until = blocked(windows.end(of: window, in: managed.settings))
+            let until = blocked(windows.end(of: window, in: managed.settings, at: now).end)
             return windowPasswordGate(managed, untilText: until)   // see `windowPasswordGate(_:)`
                 ?? .blocked(reason: .schedule, untilText: until)
         }
@@ -303,22 +305,27 @@ public final class RulesEngine {
     /// The user closed a pause screen instead of pushing through it. The caller asserts
     /// that a pause screen was actually showing (Task 9 filters the raw signals).
     ///
-    /// Ignored while protection is paused: no pause screen can be showing then, so such a
-    /// signal is stale — and counting it would mark the day as practised on the strength
-    /// of a window that was closed for other reasons.
+    /// Ignored for a group a break or the pass has lifted: no pause screen can be showing over
+    /// it then, so such a signal is stale — and counting it would mark the day as practised on the
+    /// strength of a window that was closed for other reasons. A group that opted out of both
+    /// goes on showing its screens, so its dismissals go on counting.
     public func recordDismissal(targetID: String) {
         advanceToNow()
-        guard activeProtectionPauseEnd == nil else { return }
-        guard lookup.managed(targetID: targetID) != nil else { return }
-        state.opensAvoided += 1
+        if isScreened(lookup.managed(targetID: targetID)) { state.opensAvoided += 1 }
     }
 
     /// The same, from a web pause screen.
     public func recordDismissal(url: String) {
         advanceToNow()
-        guard activeProtectionPauseEnd == nil else { return }
-        guard lookup.managed(url: url) != nil else { return }
-        state.opensAvoided += 1
+        if isScreened(lookup.managed(url: url)) { state.opensAvoided += 1 }
+    }
+
+    /// Whether a pause screen can be standing over this group: managed, and not lifted by the
+    /// break or the pass — the same opt-out `decision(for:)` reads at R1 and R3.
+    private func isScreened(_ managed: GroupLookup.Managed?) -> Bool {
+        guard let managed else { return false }
+        let lifted = activeProtectionPauseEnd != nil || activeEmergencyPassEnd != nil
+        return !lifted || managed.settings.shutsOutAppWideUnblocks
     }
 
     // MARK: - Usage and the daily time limit
@@ -331,10 +338,13 @@ public final class RulesEngine {
     ///
     /// Time for a group the configuration does not know is dropped rather than stored: the
     /// engine acts on nothing it has no settings for, and `state.json` should not carry totals
-    /// for groups that do not exist.
+    /// for groups that do not exist. So is time inside one of the group's own break windows,
+    /// which promise "nothing spent" — unlike the app-wide break and the pass, which lift the
+    /// blocking and not the hour.
     public func recordUsage(groupID: String, seconds: Int) {
         advanceToNow()
-        guard seconds > 0, config.activeSettings(forGroup: groupID) != nil else { return }
+        guard seconds > 0, let settings = config.activeSettings(forGroup: groupID),
+              !windows.isInBreakWindow(settings, at: now) else { return }
         state.usageSecondsToday[groupID, default: 0] += seconds
         // The catch-up above ran before the seconds landed, so the limit is re-checked here.
         reapSessionsOverTimeLimit()
@@ -436,10 +446,7 @@ public final class RulesEngine {
         advanceToNow()
         guard let settings = config.activeSettings(forGroup: groupID),
               let window = windows.strictWindow(settings, at: now) else { return nil }
-        return (
-            window.minutesUntilEnd(from: windows.minutesOfDay(now)),
-            windows.end(of: window, in: settings)
-        )
+        return windows.end(of: window, in: settings, at: now)
     }
 
     // MARK: - Reconfiguration
@@ -462,6 +469,7 @@ public final class RulesEngine {
     /// The emergency pass therefore has one job less. It still lifts blocks and the settings
     /// lock; there is no configuration lock left for it to lift.
     public func updateConfig(_ newConfig: Config) {
+        effectsBeforeEdit = pendingEffects
         advanceToNow()
         let dayStartMoved = newConfig.dayStartMinutes != config.dayStartMinutes
         config = newConfig
@@ -484,9 +492,14 @@ public final class RulesEngine {
     /// was just refused, ending a running break under a window from the failed edit or reaping a
     /// session against its daily limit. What the catch-up inside the refused edit already did is
     /// rolled back with the state and done again by the next tick, under rules that are real.
+    ///
+    /// The effect queue goes back too: the catch-up queued what it found, and the next tick finds
+    /// the same thing again in the restored state, so keeping both announced one end twice.
     public func revertConfig(to previous: Config, restoring previousState: EngineState) {
         config = previous
         state = previousState
+        if let effectsBeforeEdit { pendingEffects = effectsBeforeEdit }
+        effectsBeforeEdit = nil
     }
 
     /// Adopts the day the new `dayStartMinutes` puts us in, **without rolling into it**.
@@ -539,7 +552,7 @@ public final class RulesEngine {
     }
 
     private func drainPendingEffects() -> [EngineEffect] {
-        defer { pendingEffects.removeAll() }
+        defer { pendingEffects.removeAll(); effectsBeforeEdit = nil }
         return pendingEffects
     }
 

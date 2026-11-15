@@ -11,18 +11,61 @@ import Foundation
 /// Several rather than one, so two tabs each parked on a press do not take turns raising the
 /// prompt while somebody switches between them. Bounded, because the nonces are only worth
 /// remembering for as long as a tab could still be showing one.
+///
+/// **A press carries the moment it was made**, because the memory above is gone after a relaunch
+/// — and the keep-alive agent relaunches within seconds of any quit. A tab still showing a press
+/// from before then would raise the prompt unasked. The page writes the nonce as
+/// `<milliseconds since 1970>.<random>`, and a press older than `freshSeconds` is taken as
+/// answered. A nonce without the moment, from a page built before this, is judged as it always was.
 public struct AnsweredAsks: Equatable, Sendable {
     public static let capacity = 16
+
+    /// How long after the page made it a press is still a question worth a window.
+    public static let freshSeconds: TimeInterval = 60
 
     private var answered: [String] = []
 
     public init() {}
 
     /// Whether this press is one nobody has answered yet, and from now on it has been.
-    public mutating func isNew(_ nonce: String?) -> Bool {
+    public mutating func isNew(_ nonce: String?, now: Date = Date()) -> Bool {
         guard let nonce, !nonce.isEmpty, !answered.contains(nonce) else { return false }
         answered.append(nonce)
         if answered.count > Self.capacity { answered.removeFirst(answered.count - Self.capacity) }
+        if let made = Self.madeAt(nonce), now.timeIntervalSince(made) > Self.freshSeconds {
+            return false
+        }
+        return true
+    }
+
+    /// The moment a timestamped nonce was made, or `nil` for one that carries none.
+    static func madeAt(_ nonce: String) -> Date? {
+        guard let dot = nonce.firstIndex(of: "."), let millis = Int64(nonce[..<dot]) else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: TimeInterval(millis) / 1000)
+    }
+}
+
+/// Which navigation failures have been written to the event log lately.
+///
+/// `TabNavigator` writes a line for every refusal, and a refusal can repeat once a second: a
+/// browser that will not be told where to go, behind a window that is not active, is asked again
+/// on every poll and refuses again. The same sentence sixty times a minute buries everything else
+/// in the log and says nothing the first line did not. The same line is written once per
+/// `quietSeconds`; a different failure is written at once.
+public struct NavigationFailures: Equatable, Sendable {
+    public static let quietSeconds: TimeInterval = 60
+
+    private var written: [String: Date] = [:]
+
+    public init() {}
+
+    /// Whether this line is worth writing now, and from now on it has been written.
+    public mutating func shouldRecord(_ line: String, now: Date) -> Bool {
+        written = written.filter { abs(now.timeIntervalSince($0.value)) < Self.quietSeconds }
+        guard written[line] == nil else { return false }
+        written[line] = now
         return true
     }
 }

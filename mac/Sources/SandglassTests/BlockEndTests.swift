@@ -24,7 +24,9 @@ func runBlockEndTests() {
         testTwoBlocksThatTileTheWeekNameNoHourEither()
         testABlockAndABreakThatTileTheWeekKeepTheirHour()
         testAGroupWithNoWindowsHasNoBlockToName()
-            testEverySentenceAboutTheEndlessBlockSaysSo()
+        testEverySentenceAboutTheEndlessBlockSaysSo()
+        testAChainedWindowIsWalkedThrough()
+        testABreakInsideTheBlockIsWhereItEnds()
     }
 }
 
@@ -62,6 +64,40 @@ private func testAWindowEndingAtMidnightForRealKeepsIt() {
     var stillBlocked = false
     if case .blocked = engine.decision(targetID: target.id) { stillBlocked = true }
     expect(!stillBlocked, "and it lifts there, which is the whole difference from the window below")
+}
+
+// MARK: - The first free minute, not the first window's edge
+
+/// Two windows that meet are one block to the person reading the screen: at 10:00 under 09–12 and
+/// 12–14 the group opens at 14:00, and "until 12:00" sent them back at noon to find it still shut.
+private func testAChainedWindowIsWalkedThrough() {
+    let clock = FakeClock(august(10, 10))
+    let morning = strictWindow(weekdays: TimeWindow.everyDay, from: 9 * 60, to: 12 * 60)
+    let lunch = strictWindow(weekdays: TimeWindow.everyDay, from: 12 * 60, to: 14 * 60)
+    let (engine, target) = makeEngine(settings: standardSettings(windows: [morning, lunch]), clock: clock)
+    expectEqual(
+        engine.decision(targetID: target.id), scheduleDecision(until: "14:00"),
+        "the block ends where the second window does"
+    )
+    expectEqual(engine.strictBlock(forGroup: youtubeGroup)?.end, .at("14:00"), "and every screen says so")
+    expectEqual(
+        engine.strictBlock(forGroup: youtubeGroup)?.minutesLeft, 240,
+        "measured to that same minute, so two blocks still compare by when they really lift"
+    )
+}
+
+/// A break that opens before the block's own end is a way out of it, and the earlier one: 09–17
+/// with a break 12–13 is free at noon, which "until 17:00" kept quiet about.
+private func testABreakInsideTheBlockIsWhereItEnds() {
+    let clock = FakeClock(august(10, 10))
+    let day = strictWindow(weekdays: TimeWindow.everyDay, from: 9 * 60, to: 17 * 60)
+    let lunch = window(.break, weekdays: TimeWindow.everyDay, from: 12 * 60, to: 13 * 60)
+    let (engine, target) = makeEngine(settings: standardSettings(windows: [day, lunch]), clock: clock)
+    expectEqual(
+        engine.decision(targetID: target.id), scheduleDecision(until: "12:00"),
+        "the break is the first minute the group is open"
+    )
+    expectEqual(engine.strictBlock(forGroup: youtubeGroup)?.minutesLeft, 120, "two hours from 10:00")
 }
 
 // MARK: - The case that has no hour

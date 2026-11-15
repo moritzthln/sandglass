@@ -19,32 +19,48 @@ final class OverlayWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
-    /// Every command combination is swallowed. The only text on this screen is a password
-    /// field, and typing it is all it needs — no paste, nothing worth copying out — so a blanket
-    /// refusal costs nothing and cannot be walked around with a shortcut nobody thought to list.
+    /// Every command combination is swallowed but the editing ones while the password field is
+    /// being typed in — a password kept in a password manager has to be pastable. A refusal
+    /// by default cannot be walked around with a shortcut nobody thought to list. See `OverlayKey`.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
-            return true
-        }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let answer = OverlayKey.answer(
+            characters: event.charactersIgnoringModifiers?.lowercased() ?? "",
+            command: flags.contains(.command),
+            otherModifiers: !flags.isDisjoint(with: [.control, .option]),
+            editingText: firstResponder is NSText
+        )
+        if answer == .refuse { return true }
         return super.performKeyEquivalent(with: event)
     }
 
     /// Unhandled keys stop here rather than at a beep. Views that want a key — a focused
     /// button taking Return or Space — are asked first and are unaffected.
-    override func keyDown(with event: NSEvent) {}
+    ///
+    /// Tab is the exception, and it is `NSWindow`'s own: moving between the buttons and the field
+    /// is the window's job, and swallowing it left the keyboard stuck on whichever had focus.
+    override func keyDown(with event: NSEvent) {
+        guard event.keyCode == 48 else { return }   // kVK_Tab
+        if event.modifierFlags.contains(.shift) {
+            selectPreviousKeyView(nil)
+        } else {
+            selectNextKeyView(nil)
+        }
+    }
 
-    /// Escape. The default looks for something to cancel or close; there is nothing on this
-    /// screen the user may leave by any route except the two buttons on it.
+    /// Escape, when nothing on the screen took it. The default looks for something to cancel or
+    /// close; there is nothing on this screen the user may leave by any route except the two
+    /// buttons on it — and "Back to work" carries Escape as its own shortcut, so it is one of them.
     override func cancelOperation(_ sender: Any?) {}
 }
 
-/// The overlay as the user meets it: the pause screen, on the one screen the blocked thing was on.
+/// The overlay as the user meets it: the pause screen on the screen the blocked thing was on, and
+/// every other display covered in black.
 ///
-/// It used to cover every display, the others in plain black. That was a decision about a screen
-/// this app no longer shows for every block — the overlay is now raised only when there is a way
-/// through, which is a question to answer rather than a wall to put up — and blacking out a second
-/// display to ask it takes the rest of the Mac away for no gain. The reference the pause screen is
-/// standing in front of is on one screen, and that is the screen it stands on.
+/// It stood on one screen for a while, on the argument that the thing behind it was on one. An
+/// application is not: its window or its video on a second display went on playing, and that
+/// display's menu bar put the status item back in reach. Where each window goes, and when the
+/// overlay steps back for an alert, is `OverlayPlan`; this type builds what the plan says.
 ///
 /// The window is built when the overlay is shown and released when it is hidden. Keeping one alive
 /// between shows would mean carrying a stale frame through every display change, and releasing it
@@ -116,29 +132,31 @@ final class OverlaySet {
     // MARK: - Windows
 
     private func build(_ presentation: Presentation) {
-        guard let screen = targetScreen() else { return }   // nothing to cover
-        displayID = Self.displayID(of: screen)
-        let window = makeWindow(covering: screen)
-        let view = NSHostingView(rootView: pauseScreen(presentation))
-        window.contentView = view
-        hostingView = view
-        hostWindow = window
-        windows.append(window)
+        let screens = NSScreen.screens
+        let ids = screens.map { Self.displayID(of: $0) ?? 0 }
+        let plan = OverlayPlan.plan(displays: ids, target: targetDisplay(), modalAlertRunning: false)
+        for (screen, placement) in zip(screens, plan.placements) {
+            let window = makeWindow(covering: screen)
+            if placement.role == .pauseScreen {
+                displayID = placement.display
+                let view = NSHostingView(rootView: pauseScreen(presentation))
+                window.contentView = view
+                hostingView = view
+                hostWindow = window
+            }
+            windows.append(window)
+        }
     }
 
-    /// The screen the blocked thing is on.
+    /// The display the blocked thing is on.
     ///
     /// `NSScreen.main` is that screen as far as AppKit knows — it is the one holding the window
     /// with keyboard focus, and the app being blocked is frontmost at the moment this is asked. A
     /// rebuild asks something different, because by then the focused window is the overlay itself:
-    /// it goes back to the display it was already on, and falls through to `NSScreen.main` only
-    /// when that display has been unplugged.
-    private func targetScreen() -> NSScreen? {
-        let screens = NSScreen.screens
-        if let displayID, let same = screens.first(where: { Self.displayID(of: $0) == displayID }) {
-            return same
-        }
-        return NSScreen.main ?? screens.first
+    /// it goes back to the display it was already on, and `OverlayPlan` falls through to the first
+    /// display when that one has been unplugged.
+    private func targetDisplay() -> CGDirectDisplayID? {
+        displayID ?? NSScreen.main.flatMap(Self.displayID(of:))
     }
 
     /// The window server's id for a screen. `NSScreen` itself is not a stable handle across a
@@ -152,8 +170,9 @@ final class OverlaySet {
             contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false
         )
         window.setFrame(screen.frame, display: false)
-        // Above everything, the menu bar included — and therefore above Sandglass's own status
-        // item, so the quick actions behind it are out of reach while a pause screen is up.
+        // Above everything, every display's menu bar included — and therefore above Sandglass's
+        // own status item, so the quick actions behind it are out of reach while a pause screen
+        // is up.
         // That is the decision, not an oversight: a pause the user can reach around is not a
         // pause. It costs nothing, because the overlay only exists while a blocked app is
         // frontmost, and "Back to work" hands the menu bar straight back.
@@ -189,7 +208,17 @@ final class OverlaySet {
         // An accessory app is never the active one until it asks. Without this the overlay
         // would be visible while the keyboard still belonged to the app behind it.
         NSApp.activate(ignoringOtherApps: true)
-        hostWindow?.makeKeyAndOrderFront(nil)
+        // One of the app's own alerts is running modally: AppKit delivers events to it alone, so
+        // an overlay on top of it is a pause screen whose buttons do nothing. The alert is lifted
+        // above the overlay and keeps the keyboard; once it is answered, the overlay's buttons
+        // take clicks again and the first one gives it the keyboard back. See `OverlayPlan`.
+        let modal = NSApp.modalWindow
+        let stacking = OverlayPlan.plan(displays: [], target: nil, modalAlertRunning: modal != nil)
+        if stacking.liftsModalAlert, let modal {
+            modal.level = NSWindow.Level(rawValue: NSWindow.Level.screenSaver.rawValue + 1)
+            modal.makeKeyAndOrderFront(nil)
+        }
+        if stacking.takesKeyboard { hostWindow?.makeKeyAndOrderFront(nil) }
     }
 
     private func tearDown() {

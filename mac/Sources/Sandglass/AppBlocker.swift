@@ -601,7 +601,7 @@ extension AppBlocker: PageBlockerHost {
     /// on its way to the site when the browser is handed back the keyboard.
     func askForPassword(name: String, target: String, browser: NSRunningApplication) {
         passwordPanel.show(
-            name: name,
+            name: name, target: target,
             submit: { [weak self] password in
                 self?.webPasswordTyped(password, target: target, browser: browser)
             },
@@ -610,6 +610,10 @@ extension AppBlocker: PageBlockerHost {
                 browser.activate()
             }
         )
+    }
+
+    func passwordNoLongerAsked(target: String) {
+        passwordPanel.close(ifAbout: target)
     }
 
     private func webPasswordTyped(
