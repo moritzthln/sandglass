@@ -227,14 +227,22 @@ struct GroupDetailColumn: View {
             tone: .secondary
         )
         Divider().overlay(Palette.hairline)
-        SettingsRow("Cooldown", help: "A wait before the next open, counted from the moment the last one ended.") {
+        SettingsRow(
+            "Cooldown",
+            help: "A wait before the next open, counted from the moment the last one ended.",
+            caption: EditorCards.sessionOnlyCaption(sessionMinutes: settings.sessionMinutes)
+        ) {
             StepperControl(
                 value: field(\.cooldownMinutes),
                 range: upwards(0...240, from: settings.cooldownMinutes)
             ) { "\($0) min" }
         }
         Divider().overlay(Palette.hairline)
-        SettingsRow("Earn back half an open", help: "Ending an open in its first half gives half an open back.") {
+        SettingsRow(
+            "Earn back half an open",
+            help: "Ending an open in its first half gives half an open back.",
+            caption: EditorCards.sessionOnlyCaption(sessionMinutes: settings.sessionMinutes)
+        ) {
             // The one switch whose *off* is the strict side: earn-back hands half a spent open
             // back, so giving it up is always allowed and asking for it back is not.
             SettingsToggle(isOn: field(\.earnBackEnabled), label: "Earn back half an open")

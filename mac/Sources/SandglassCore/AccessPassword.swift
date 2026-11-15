@@ -57,10 +57,46 @@ public enum AccessPassword: Codable, Equatable, Sendable {
     }
 }
 
+/// Whether a group opens with a password, and when the password is what holds it.
+///
+/// One value rather than an optional password beside a switch, because the switch meant nothing
+/// without the password and every reader had to remember to ask both. Three cases, and each place
+/// that cares — the decision ladder, the reapers, earn-back, the app's unblocks, the lock rule —
+/// says what it does with each of them.
+///
+/// - `none` — the ordinary group, opened through its budget.
+/// - `always` — the password is the only way through, at every hour.
+/// - `inStrictWindows` — the password is the way through the group's strict windows, and outside
+///   them the group is an ordinary budget group. A group with no strict windows never asks.
+public enum PasswordMode: Equatable, Sendable {
+    case none
+    case always(AccessPassword)
+    case inStrictWindows(AccessPassword)
+
+    /// The two keys it is stored as, read back into one value. A scope with no password is
+    /// `.none`: there is nothing for it to narrow.
+    public init(_ password: AccessPassword?, onlyInStrictWindows: Bool) {
+        guard let password else {
+            self = .none
+            return
+        }
+        self = onlyInStrictWindows ? .inStrictWindows(password) : .always(password)
+    }
+
+    /// The password either mode asks for, or `nil` for `.none`.
+    public var password: AccessPassword? {
+        switch self {
+        case .none: return nil
+        case .always(let password), .inStrictWindows(let password): return password
+        }
+    }
+}
+
 /// What typing a group's access password got somebody.
 public enum AccessAttempt: Equatable, Sendable {
-    /// The password matched and the group is open for this long. Also the answer for a group
-    /// whose password session is already running: typing it again buys nothing and costs nothing.
+    /// The password matched and opened the group for this long. Only ever the answer to a
+    /// password that was checked: a group already open answers `.refused(.allowed)`, unchecked
+    /// and uncounted, so a wrong password never reads as one that opened something.
     case unlocked(sessionSeconds: Int)
     /// It did not match. `attemptsLeft` is how many more may be tried before the wait; `0` means
     /// this one started it.
@@ -75,65 +111,6 @@ public enum AccessAttempt: Equatable, Sendable {
     /// it is doing instead rides along: a strict window, a dated block, "Block everything". A
     /// password never opens a group a harder block is holding.
     case refused(Decision)
-}
-
-/// Wrong passwords per group, and the wait five of them in a row earn.
-///
-/// **One counter for every place the password is typed** — the pause screen, the block page's
-/// prompt, the group's settings door and the keep-alive switch — so moving between them buys no
-/// extra guesses.
-///
-/// **In memory, deliberately.** It defends against somebody trying every four-digit code at the
-/// prompt, and a minute between every five tries turns ten thousand guesses into more than a day.
-/// Quitting to reset the count costs the keep-alive's restart each time, which is slower than the
-/// wait it skips — and switching the keep-alive off asks for the password too.
-///
-/// Measured on the uptime clock, so moving the system clock forward ends no wait.
-public struct AccessAttempts: Equatable, Sendable {
-    /// How many wrong passwords in a row are forgiven before the wait.
-    public static let freeAttempts = 5
-    /// How long the wait is. Short enough for somebody who mistyped, long enough for a guesser.
-    public static let lockoutSeconds: TimeInterval = 60
-
-    private var failures: [String: Int] = [:]
-    private var lockedUntil: [String: TimeInterval] = [:]
-
-    public init() {}
-
-    /// Seconds still to wait before this group checks a password again, or `nil` when it will.
-    public func secondsLeft(groupID: String, uptime: TimeInterval) -> Int? {
-        guard let until = lockedUntil[groupID], until > uptime else { return nil }
-        return Int((until - uptime).rounded(.up))
-    }
-
-    /// Checks `typed` against the group's password, unless the group is waiting out its last five
-    /// wrong ones. `nil` means it matched.
-    ///
-    /// The count starts again once a wait is over, so the sixth try gets a fresh five rather than
-    /// a wait after every single miss: the wait is a brake on guessing, not a punishment for the
-    /// person who mistyped. A right password clears the count too.
-    public mutating func check(
-        _ typed: String, against password: AccessPassword, settingsPasscode: PasscodeHash?,
-        groupID: String, uptime: TimeInterval
-    ) -> AccessAttempt? {
-        if let wait = secondsLeft(groupID: groupID, uptime: uptime) { return .lockedOut(secondsLeft: wait) }
-        lockedUntil.removeValue(forKey: groupID)
-        guard let matched = password.matches(typed, settingsPasscode: settingsPasscode) else {
-            return .noSettingsPasscode
-        }
-        guard !matched else {
-            failures.removeValue(forKey: groupID)
-            return nil
-        }
-        let count = (failures[groupID] ?? 0) + 1
-        guard count >= Self.freeAttempts else {
-            failures[groupID] = count
-            return .wrong(attemptsLeft: Self.freeAttempts - count)
-        }
-        failures.removeValue(forKey: groupID)
-        lockedUntil[groupID] = uptime + Self.lockoutSeconds
-        return .wrong(attemptsLeft: 0)
-    }
 }
 
 // MARK: - The engine's half
@@ -164,47 +141,66 @@ extension RulesEngine {
     }
 
     /// Checks a group's access password **without opening anything**, through the same counter —
-    /// for the group's settings door and the keep-alive switch, which the password guards too.
-    /// `nil` means it matched. A group with no access password answers `.refused(.notManaged)`.
+    /// for the group's settings door, which the password guards too. `nil` means it matched. A
+    /// group with no access password answers `.refused(.notManaged)`.
     ///
     /// Asked of the group whether or not it is switched on: switching a password group off is one
     /// of the things its password holds, and turning it back on is a tightening anyone may make.
     public func verifyAccessPassword(_ typed: String, groupID: String) -> AccessAttempt? {
+        verifyAnyAccessPassword(typed, groupIDs: [groupID])
+    }
+
+    /// The same for one entry that any one of several groups' passwords may answer — the
+    /// keep-alive switch, which asks for "a password" without asking whose. `nil` means one
+    /// matched. See `AccessAttempts.checkAny` for what a miss costs each of them.
+    public func verifyAnyAccessPassword(_ typed: String, groupIDs: [String]) -> AccessAttempt? {
         advanceToNow()
-        guard let password = config.settings(forGroup: groupID)?.accessPassword else {
-            return .refused(.notManaged)
+        let passwords = groupIDs.compactMap { config.settings(forGroup: $0)?.accessPassword }
+        guard !passwords.isEmpty else { return .refused(.notManaged) }
+        return countingAttempts {
+            $0.checkAny(
+                typed, against: passwords, settingsPasscode: config.settingsLock.passcode, at: reading
+            )
         }
-        return accessAttempts.check(
-            typed, against: password, settingsPasscode: config.settingsLock.passcode,
-            groupID: groupID, uptime: reading.uptime
-        )
     }
 
     /// The password is only looked at while it is the one thing standing in the way. Anything
-    /// harder is answered without reading it, so a guess made inside a strict window is neither
-    /// checked nor counted — there was nothing for it to open.
+    /// else is answered without reading it, so a guess made inside a strict window is neither
+    /// checked nor counted — there was nothing for it to open — and neither is one typed at a
+    /// group that is already open, which is told so rather than told it was unlocked.
     private func tryAccess(_ typed: String, _ managed: GroupLookup.Managed) -> AccessAttempt {
         let current = decision(for: managed)
-        guard let password = managed.settings.accessPassword else { return .refused(current) }
-        if case .allowed(let remaining) = current { return .unlocked(sessionSeconds: remaining) }
-        guard case .blocked(.passwordRequired, _) = current else { return .refused(current) }
-        if let failed = accessAttempts.check(
-            typed, against: password, settingsPasscode: config.settingsLock.passcode,
-            groupID: managed.groupID, uptime: reading.uptime
-        ) {
+        guard let password = managed.settings.accessPassword,
+              case .blocked(.passwordRequired, _) = current else { return .refused(current) }
+        if let failed = countingAttempts({
+            $0.check(typed, against: password, settingsPasscode: config.settingsLock.passcode, at: reading)
+        }) {
             return failed
         }
         return .unlocked(sessionSeconds: startAccessSession(managed))
     }
 
+    /// Runs one check against the counter the state carries, and writes back what it left. A
+    /// wait it started is a fresh uptime twin, so the reboot check's anchor moves with it.
+    private func countingAttempts(
+        _ check: (inout AccessAttempts) -> AccessAttempt?
+    ) -> AccessAttempt? {
+        var attempts = state.accessAttempts ?? AccessAttempts()
+        let result = check(&attempts)
+        if result == .wrong(attemptsLeft: 0) { state.uptimeAnchor = reading.uptime }
+        state.accessAttempts = attempts.isEmpty ? nil : attempts
+        return result
+    }
+
     /// Seconds before this group checks a password again, or `nil` when it will. For the prompt,
     /// which says so instead of taking a password it is going to refuse.
     public func accessWaitSeconds(groupID: String) -> Int? {
-        accessAttempts.secondsLeft(groupID: groupID, uptime: reading.uptime)
+        guard let password = config.settings(forGroup: groupID)?.accessPassword else { return nil }
+        return state.accessAttempts?.secondsLeft(secret: password.attemptKey, at: reading)
     }
 
     /// The rung `decision(for:)` asks between the hard blocks and the budgets, or `nil` for a
-    /// group with no access password.
+    /// group whose password does not ask at every hour.
     ///
     /// **Over every budget**, in both directions: no pause, open or cooldown lets a password group
     /// through, and once the password has bought a session none of them — the daily time limit
@@ -218,8 +214,7 @@ extension RulesEngine {
     /// break window of the group's own still opens it: that is the owner's planned free time, and
     /// drawing a new one is a loosening the password guards.
     func passwordGate(_ managed: GroupLookup.Managed) -> Decision? {
-        guard managed.settings.accessPassword != nil,
-              !managed.settings.passwordOnlyInStrictWindows else { return nil }
+        guard case .always = managed.settings.passwordMode else { return nil }
         let budget = GroupBudget(state: state, reading: reading)
         if let remaining = budget.remainingSessionSeconds(managed.groupID) {
             return .allowed(remainingSessionSeconds: remaining)
@@ -232,12 +227,12 @@ extension RulesEngine {
     ///
     /// **Only a session the password bought runs on through the window.** An ordinary open made
     /// just before the window began is held by it as it always was — otherwise every window
-    /// would start with a free twenty minutes for whoever opened the group at a minute to.
+    /// would start with a free twenty minutes for whoever opened the group at a minute to. And
+    /// the password's session goes no further than the window: see `startAccessSession`.
     func windowPasswordGate(_ managed: GroupLookup.Managed, untilText: String) -> Decision? {
-        guard managed.settings.accessPassword != nil,
-              managed.settings.passwordOnlyInStrictWindows else { return nil }
+        guard case .inStrictWindows = managed.settings.passwordMode else { return nil }
         let budget = GroupBudget(state: state, reading: reading)
-        if state.sessions[managed.groupID]?.byPassword == true,
+        if state.sessions[managed.groupID]?.kind == .password,
            let remaining = budget.remainingSessionSeconds(managed.groupID) {
             return .allowed(remainingSessionSeconds: remaining)
         }
@@ -252,7 +247,14 @@ extension Config {
     /// Whether any group opens with the settings passcode. While one does, the passcode's
     /// forgot hour does not clear it: that hour recovers the settings, not the site.
     public var opensAGroupWithSettingsPasscode: Bool {
-        groupSettings.values.contains { $0.accessPassword == .settingsPasscode }
+        !groupsOpeningWithSettingsPasscode.isEmpty
+    }
+
+    /// The groups that open with the settings passcode, sorted — every one of which nothing can
+    /// open while no settings passcode is set. Switched-off ones included: switching one back on
+    /// is a tightening anyone may make, and it would come back shut.
+    public var groupsOpeningWithSettingsPasscode: [String] {
+        groupSettings.keys.sorted().filter { groupSettings[$0]?.accessPassword == .settingsPasscode }
     }
 
     /// The switched-on groups that open only with a password, sorted — the ones whose password

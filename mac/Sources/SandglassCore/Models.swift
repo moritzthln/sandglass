@@ -263,27 +263,52 @@ public struct GroupSettings: Codable, Equatable, Sendable {
     /// .Recovery`, which has no third state for exactly this reason.
     public var ignoresAppWideUnblocks: Bool
 
-    /// Which password this group opens with, or `nil` for the ordinary group that opens through
-    /// its budget.
+    /// Whether this group opens with a password, which one, and when it asks for it. `.none` is
+    /// the ordinary group that opens through its budget. See `PasswordMode` for the other two.
     ///
-    /// **With one set, the password is the only way through.** No pause, no opens, no cooldown:
-    /// the group is blocked until somebody types it, and then it is open for one session of
-    /// `accessMinutes` and relocks like any other session. Where it sits among the other blocks is
-    /// `RulesEngine.decision(for:)`; the brute-force wait is `AccessAttempts`.
+    /// **With a password that asks all the time, it is the only way through.** No pause, no
+    /// opens, no cooldown: the group is blocked until somebody types it, and then it is open for
+    /// one session of `accessMinutes` and relocks like any other session. Where it sits among the
+    /// other blocks is `RulesEngine.decision(for:)`; the brute-force wait is `AccessAttempts`.
     ///
     /// **And the same password guards every way of undoing it**: the group's settings sit behind
     /// it like behind a group passcode (`GroupLockGate`), the app's unblocks do not reach the
-    /// group (`shutsOutAppWideUnblocks`), and switching off the keep-alive asks for it. See
-    /// `AccessPassword` for the two sources it can come from.
-    public var accessPassword: AccessPassword?
-
-    /// Whether `accessPassword` asks only inside the group's strict windows. Off — the default —
-    /// is the group that opens only with its password. On, the password is the way through a
-    /// strict window, and outside every window the group spends its budget like any other.
+    /// group while the password is what holds it (`shutsOutAppWideUnblocks`), and switching off
+    /// the keep-alive asks for it. See `AccessPassword` for the two sources it can come from.
     ///
-    /// Meaningless without a password, and kept rather than cleared when the password goes, so
-    /// switching it back on restores the same choice.
-    public var passwordOnlyInStrictWindows = false
+    /// On disk it is still the two keys it always was, `accessPassword` and the optional
+    /// `passwordOnlyInStrictWindows`, so every file written before the mode existed reads the same.
+    public var passwordMode: PasswordMode = .none
+
+    /// The password, whichever mode asks for it, or `nil` for a group with none. Setting one
+    /// keeps the mode's scope; setting `nil` is `.none`.
+    public var accessPassword: AccessPassword? {
+        get { passwordMode.password }
+        set {
+            if let newValue {
+                passwordMode = passwordOnlyInStrictWindows ? .inStrictWindows(newValue) : .always(newValue)
+            } else {
+                passwordMode = .none
+            }
+        }
+    }
+
+    /// Whether the password asks only inside the group's strict windows. Off is the group that
+    /// opens only with its password. On, the password is the way through a strict window, and
+    /// outside every window the group spends its budget like any other.
+    ///
+    /// Meaningless without a password, so setting it on a group with none changes nothing: the
+    /// scope is part of the password, and goes with it.
+    public var passwordOnlyInStrictWindows: Bool {
+        get {
+            if case .inStrictWindows = passwordMode { return true }
+            return false
+        }
+        set {
+            guard let password = passwordMode.password else { return }
+            passwordMode = newValue ? .inStrictWindows(password) : .always(password)
+        }
+    }
 
     /// The day this group is hard-blocked until, as `DatedBlock` spells one, or `nil` for the
     /// ordinary case of no dated block at all.
@@ -374,8 +399,7 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         self.passcodeForgotStartedAt = passcodeForgotStartedAt
         self.ignoresAppWideUnblocks = ignoresAppWideUnblocks
         self.blockedUntilDay = blockedUntilDay
-        self.accessPassword = accessPassword
-        self.passwordOnlyInStrictWindows = passwordOnlyInStrictWindows
+        self.passwordMode = PasswordMode(accessPassword, onlyInStrictWindows: passwordOnlyInStrictWindows)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -463,8 +487,8 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         // way to disk — so the key that reaches this line is one worth writing.
         try container.encodeIfPresent(blockedUntilDay, forKey: .blockedUntilDay)
         // Only where there is one, like the passcode above it.
-        try container.encodeIfPresent(accessPassword, forKey: .accessPassword)
-        if passwordOnlyInStrictWindows {
+        try container.encodeIfPresent(passwordMode.password, forKey: .accessPassword)
+        if case .inStrictWindows = passwordMode {
             try container.encode(true, forKey: .passwordOnlyInStrictWindows)
         }
     }
@@ -533,12 +557,16 @@ public struct GroupSettings: Codable, Equatable, Sendable {
         // Absent means the group opens through its budget, which is what every file written
         // before the password existed meant. Present but unreadable is **still a password** — the
         // settings passcode — because reading it as none would open the group on a decode error.
-        accessPassword = container.contains(.accessPassword)
+        let password = container.contains(.accessPassword)
             ? (try? container.decode(AccessPassword.self, forKey: .accessPassword)) ?? .settingsPasscode
             : nil
         // Unreadable is off: the password then asks all the time, which is the stricter reading.
-        passwordOnlyInStrictWindows =
-            (try? container.decodeIfPresent(Bool.self, forKey: .passwordOnlyInStrictWindows)) == true
+        // A scope with no password beside it is dropped: there is nothing for it to narrow.
+        passwordMode = PasswordMode(
+            password,
+            onlyInStrictWindows:
+                (try? container.decodeIfPresent(Bool.self, forKey: .passwordOnlyInStrictWindows)) == true
+        )
     }
 
     /// How long one correct password opens the group for: the group's own session length, or
@@ -552,11 +580,30 @@ public struct GroupSettings: Codable, Equatable, Sendable {
 
     public static let defaultAccessMinutes = 30
 
-    /// Whether the emergency pass and "Unblock everything" leave this group alone: because it
-    /// says so, or because it opens only with a password. A password group the pass could open
-    /// for an hour would be one the week's pass undoes, so the password implies the opt-out.
+    /// Whether the emergency pass and "Unblock everything" may ever leave this group alone:
+    /// because it says so, or because it opens with a password. A password group the pass could
+    /// open for an hour would be one the week's pass undoes, so the password implies the opt-out.
+    ///
+    /// The settings' answer, for the group's settings door and for the screens that name the
+    /// exceptions: the pass never lifts the settings of a password group, in any mode, because
+    /// those settings are where the password is removed. What a decision asks is the narrower
+    /// `shutsOutAppWideUnblocks(inStrictWindow:)`.
     public var shutsOutAppWideUnblocks: Bool {
         ignoresAppWideUnblocks || accessPassword != nil
+    }
+
+    /// The same, asked of one moment: whether the pass and the break leave the group alone **now**.
+    ///
+    /// A password that asks only inside the strict windows holds the group only there. Outside
+    /// them the group is an ordinary budget group, and the app's unblocks reach it like any other;
+    /// inside one, the window is the password's to open, and the pass would be the way around it.
+    public func shutsOutAppWideUnblocks(inStrictWindow: Bool) -> Bool {
+        guard !ignoresAppWideUnblocks else { return true }
+        switch passwordMode {
+        case .none: return false
+        case .always: return true
+        case .inStrictWindows: return inStrictWindow
+        }
     }
 
     /// The old four-case `preset` enum, as an id into the presets the configuration now carries.

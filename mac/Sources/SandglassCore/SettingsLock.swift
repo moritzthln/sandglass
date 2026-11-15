@@ -200,3 +200,35 @@ public struct SettingsLock: Codable, Equatable, Sendable {
         return true
     }
 }
+
+// MARK: - Forgot hours an edit has made stale
+
+extension Config {
+
+    /// This configuration, with every forgot hour called off that the edit from `current` has
+    /// made stale. Asked on the way to disk, so no screen has to remember to.
+    ///
+    /// An hour is a promise about **one** passcode in **one** situation, and stops being worth
+    /// anything when either changes:
+    /// - **The passcode changed.** Changing it took the current one, so whatever was forgotten is
+    ///   remembered again, and a new passcode must not inherit somebody else's half-run wait.
+    /// - **Recovery was switched off** (the app-wide one only). Left behind, the timestamp would
+    ///   come back due the moment recovery was switched on again.
+    /// - **A group started or stopped opening with the settings passcode.** While one does, no
+    ///   hour may clear it (`SettingsDoor` offers none), so an hour started before would sit there
+    ///   with nobody able to see it or call it off. Either way the situation it was started in is
+    ///   gone, and starting a fresh one is a click away where it is still offered.
+    public func callingOffStaleForgotHours(from current: Config) -> Config {
+        var settled = self
+        if settingsLock.passcode != current.settingsLock.passcode
+            || !settingsLock.allowForgot
+            || opensAGroupWithSettingsPasscode != current.opensAGroupWithSettingsPasscode {
+            settled.settingsLock.forgotStartedAt = nil
+        }
+        for (groupID, settings) in groupSettings
+        where settings.passcode != current.groupSettings[groupID]?.passcode {
+            settled.groupSettings[groupID]?.passcodeForgotStartedAt = nil
+        }
+        return settled
+    }
+}

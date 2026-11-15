@@ -1,18 +1,35 @@
 import Foundation
 
+/// What bought a session, which decides what may end it and what ending it is worth.
+///
+/// - `bought` — an open spent from the day's budget. The budget's rules follow it: the daily time
+///   limit ends it, leaving it starts the cooldown, and leaving it early can earn half an open back.
+/// - `password` — the group's access password, with nothing spent. None of the budget's rules
+///   touch it: no time limit cuts it short, no cooldown follows it, and there is no open to earn
+///   back. A password that asks only in the strict windows buys no more than the window.
+///
+/// Asked of the session rather than of the group, because a group that asks for its password only
+/// inside its strict windows holds both kinds over one day.
+public enum SessionKind: Equatable, Sendable {
+    case bought
+    case password
+}
+
 /// An open, currently-running session for one group.
 public struct ActiveSession: Codable, Equatable, Sendable {
     public var groupID: String
     public var startedAt: Date
-    public var endsAt: Date?          // nil = gentle open (no relock)
+    /// When the session relocks. Every session written today has one; `nil` survives only in a
+    /// very old `state.json`, and the engine drops such a session on load rather than keep a
+    /// session nothing would ever end.
+    public var endsAt: Date?
     /// `endsAt` again, in uptime — the reading this session is actually relocked by. `nil` means
     /// there is none to go on (an old `state.json`, or a reboot), and the wall date decides.
     public var endsAtUptime: TimeInterval?
     public var warned: Bool
-    /// Whether the group's access password bought this session. Only such a session runs on
-    /// through a strict window the password opens — an ordinary open does not. `nil` on every
-    /// session written before the field existed, which reads as no.
-    public var byPassword: Bool?
+    /// What bought it. On disk it is the `byPassword` flag it always was, written only for a
+    /// password session; every session written before the field existed reads as bought.
+    public var kind: SessionKind
 
     public init(
         groupID: String,
@@ -20,14 +37,39 @@ public struct ActiveSession: Codable, Equatable, Sendable {
         endsAt: Date?,
         endsAtUptime: TimeInterval? = nil,
         warned: Bool,
-        byPassword: Bool? = nil
+        kind: SessionKind = .bought
     ) {
         self.groupID = groupID
         self.startedAt = startedAt
         self.endsAt = endsAt
         self.endsAtUptime = endsAtUptime
         self.warned = warned
-        self.byPassword = byPassword
+        self.kind = kind
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case groupID, startedAt, endsAt, endsAtUptime, warned, byPassword
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        groupID = try container.decode(String.self, forKey: .groupID)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        endsAt = try container.decodeIfPresent(Date.self, forKey: .endsAt)
+        endsAtUptime = try container.decodeIfPresent(TimeInterval.self, forKey: .endsAtUptime)
+        warned = try container.decode(Bool.self, forKey: .warned)
+        let byPassword = (try? container.decodeIfPresent(Bool.self, forKey: .byPassword)) == true
+        kind = byPassword ? .password : .bought
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(groupID, forKey: .groupID)
+        try container.encode(startedAt, forKey: .startedAt)
+        try container.encodeIfPresent(endsAt, forKey: .endsAt)
+        try container.encodeIfPresent(endsAtUptime, forKey: .endsAtUptime)
+        try container.encode(warned, forKey: .warned)
+        if kind == .password { try container.encode(true, forKey: .byPassword) }
     }
 }
 
@@ -80,6 +122,10 @@ public struct EngineState: Codable, Equatable, Sendable {
     /// than trusting whatever the clock says at launch. Absent in every `state.json` written before
     /// it existed, which a launch reads exactly as it always did. See `EngineClock`.
     public var clockAnchor: ClockAnchor?
+    /// Wrong access passwords, and the waits they have earned, or `nil` when there are none —
+    /// which is what every `state.json` written before the count was kept says. See
+    /// `AccessAttempts` for why it is kept here rather than in memory.
+    public var accessAttempts: AccessAttempts?
 
     public init(
         version: Int,
@@ -101,7 +147,8 @@ public struct EngineState: Codable, Equatable, Sendable {
         emergencyPassEndsAtUptime: TimeInterval? = nil,
         cooldownUntilUptime: [String: TimeInterval] = [:],
         uptimeAnchor: TimeInterval? = nil,
-        clockAnchor: ClockAnchor? = nil
+        clockAnchor: ClockAnchor? = nil,
+        accessAttempts: AccessAttempts? = nil
     ) {
         self.version = version
         self.dayKey = dayKey
@@ -123,6 +170,7 @@ public struct EngineState: Codable, Equatable, Sendable {
         self.cooldownUntilUptime = cooldownUntilUptime
         self.uptimeAnchor = uptimeAnchor
         self.clockAnchor = clockAnchor
+        self.accessAttempts = accessAttempts
     }
 
     // MARK: - Writing a deadline
@@ -195,6 +243,7 @@ public struct EngineState: Codable, Equatable, Sendable {
         cooldownUntilUptime = [:]
         uptimeAnchor = nil
         for groupID in sessions.keys { sessions[groupID]?.endsAtUptime = nil }
+        accessAttempts?.dropUptimeTwins()
     }
 
     /// Decoded by hand only because of `usageSecondsToday`, which V1.1 added and which is not
@@ -230,6 +279,9 @@ public struct EngineState: Codable, Equatable, Sendable {
             ?? [:]
         uptimeAnchor = try container.decodeIfPresent(TimeInterval.self, forKey: .uptimeAnchor)
         clockAnchor = try container.decodeIfPresent(ClockAnchor.self, forKey: .clockAnchor)
+        // Unreadable is no count at all rather than a refused file: a `state.json` `Store` cannot
+        // read costs the whole day, and a minute's wait is not worth that.
+        accessAttempts = try? container.decodeIfPresent(AccessAttempts.self, forKey: .accessAttempts)
     }
 
     /// How far into the calendar day a day — and a week — starts when nobody has said
