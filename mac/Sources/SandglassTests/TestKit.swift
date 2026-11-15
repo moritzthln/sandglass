@@ -61,10 +61,13 @@ func expectNoThrow(_ name: String, file: String = #filePath, line: Int = #line, 
 }
 /// Runs one area and prints how many checks it contributed, so a suite that silently
 /// stops being called (or stops asserting) shows up as a shrinking number.
-func runArea(_ name: String, _ body: () -> Void) {
+///
+/// `body` may be main-actor isolated: the runner is the process's main thread, so an area that
+/// drives `AppState` runs where `AppState` lives.
+func runArea(_ name: String, _ body: @MainActor () -> Void) {
     let before = testCount
     print("-- \(name) --")
-    body()
+    MainActor.assumeIsolated { body() }
     print("   \(testCount - before) checks")
 }
 func finishTests() -> Never {

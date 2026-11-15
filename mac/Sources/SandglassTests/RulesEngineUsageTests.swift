@@ -102,8 +102,9 @@ private func testUsageOfARemovedGroupIsDropped() {
 /// and daytime breaks therefore accrues the whole day's usage while being, by its own schedule, not
 /// managed at all.
 ///
-/// **The decision has been taken: a group's own break window charges nothing.** The reasoning `OpenLedger.recordSecond` gives for counting through a lift
-/// — "a daily limit that shrinks after a break spent scrolling is the limit working" — is about the
+/// **The decision has been taken: a group's own break window charges nothing.** The reasoning
+/// `OpenLedger.recordSecond` gives for counting through a lift — "a daily limit that shrinks after
+/// a break spent scrolling is the limit working" — is about the
 /// app-wide break and the emergency pass, which are holes somebody punched in a schedule on
 /// purpose. A group's own break window is not that: it is the group's schedule saying these hours
 /// are none of my business, so its seconds are not the group's usage either. The app-wide break

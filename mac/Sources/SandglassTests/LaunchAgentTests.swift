@@ -353,6 +353,7 @@ private func existingBundle(_ dir: URL, named name: String) -> URL {
 }
 
 /// The job every build before this one wrote: a minute tick running `open -g -a` on the bundle.
+@MainActor
 private func writeOldStyleAgent(_ dir: URL, bundle: String) {
     writeAgent(dir, job: [
         "Label": LaunchAgentManager.label,
@@ -363,6 +364,7 @@ private func writeOldStyleAgent(_ dir: URL, bundle: String) {
 }
 
 /// Today's job, pointed wherever the case needs it.
+@MainActor
 private func writeCurrentStyleAgent(_ dir: URL, program: String) {
     writeAgent(dir, job: [
         "Label": LaunchAgentManager.label,
@@ -373,6 +375,7 @@ private func writeCurrentStyleAgent(_ dir: URL, program: String) {
     ])
 }
 
+@MainActor
 private func writeAgent(_ dir: URL, job: [String: Any]) {
     let fm = FileManager.default
     try? fm.createDirectory(at: dir, withIntermediateDirectories: true)

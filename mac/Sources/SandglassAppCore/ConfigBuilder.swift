@@ -511,8 +511,7 @@ public enum ConfigBuilder {
         chosen.blockedUntilDay = current.blockedUntilDay
         // And the access password, which no preset carries either: picking one must not open a
         // group that was set to open only with its password.
-        chosen.accessPassword = current.accessPassword
-        chosen.passwordOnlyInStrictWindows = current.passwordOnlyInStrictWindows
+        chosen.passwordMode = current.passwordMode
         return chosen
     }
 
@@ -549,8 +548,7 @@ public enum ConfigBuilder {
         // would make every group with a date on it read as Custom until the date passed.
         probe.blockedUntilDay = nil
         // A fact about this group that no preset carries, so it says nothing about which one fits.
-        probe.accessPassword = nil
-        probe.passwordOnlyInStrictWindows = false
+        probe.passwordMode = .none
         return probe
     }
 
