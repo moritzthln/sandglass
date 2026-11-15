@@ -66,9 +66,14 @@ struct OpenLedger {
     /// used today" would be the app lying about the one number it exists to tell the truth
     /// about — and a daily limit that shrinks after a break spent scrolling is the limit working,
     /// not double billing.
-    func recordSecond(inFrontmost bundleID: String?) {
-        guard let bundleID, let groupID = questions.groupID(forBundleID: bundleID) else { return }
+    ///
+    /// Answers the group charged, or `nil`, so the page poll in the same tick can leave that group
+    /// alone — see `AppState.recordPageSecond(forURL:)`.
+    @discardableResult
+    func recordSecond(inFrontmost bundleID: String?) -> String? {
+        guard let bundleID, let groupID = questions.groupID(forBundleID: bundleID) else { return nil }
         engine.recordUsage(groupID: groupID, seconds: 1)
+        return groupID
     }
 
     // MARK: - A page in a browser
@@ -99,8 +104,11 @@ struct OpenLedger {
     /// frontmost app also asks what page is in front, so there is no second reporter whose
     /// seconds could land on top of these. This used to be the browser extension's heartbeat
     /// alongside the app's own reading of the tab, and the two could charge the same page twice.
-    func recordSecond(onPage url: String) {
-        guard let match = engine.webMatch(forURL: url) else { return }
+    ///
+    /// `charged` is the group the frontmost app already paid this second to; the page's second is
+    /// dropped when it belongs to the same one.
+    func recordSecond(onPage url: String, unless charged: String? = nil) {
+        guard let match = engine.webMatch(forURL: url), match.groupID != charged else { return }
         engine.recordUsage(groupID: match.groupID, seconds: 1)
     }
 

@@ -72,16 +72,39 @@ struct WindowClock {
             .max { $0.minutesUntilEnd(from: minutes) < $1.minutesUntilEnd(from: minutes) }
     }
 
-    /// When the block standing over the group ends, or that it does not. See `BlockEnd`.
+    /// When the block standing over the group at `date` ends, or that it does not, and how many
+    /// minutes away that is. See `BlockEnd`.
     ///
-    /// `window` is the one that closes last — `strictWindow` above — but the question asked here is
-    /// about the group's **whole week**, because that is what decides whether the hour that window
-    /// carries is ever reached at all. `TimeWindow.strictBlocksEveryMinute` is the rule, and it is
-    /// the same rule the group editor uses to warn that a change would close the last gap: one
-    /// answer, so the editor cannot say a week has no way out while the sidebar names an hour.
-    func end(of window: TimeWindow, in settings: GroupSettings) -> BlockEnd {
-        guard !TimeWindow.strictBlocksEveryMinute(of: settings.timeWindows) else { return .never }
-        return .at(clockText(minutes: window.endMinutes))
+    /// The question is about the group's **whole week**, because that is what decides whether the
+    /// hour a window carries is ever reached at all. `TimeWindow.strictBlocksEveryMinute` is the
+    /// rule for "never", and it is the same rule the group editor uses to warn that a change would
+    /// close the last gap: one answer, so the editor cannot say a week has no way out while the
+    /// sidebar names an hour.
+    ///
+    /// The hour is the first minute the group is free, walked by `TimeWindow.firstUnblockedMinute`
+    /// — the walk the rollover text already takes — and not the edge of the window that closes
+    /// last. A second window waiting at that edge is not a way out, and a break that opens before
+    /// it is an earlier one: under 09–12 and 12–14 the group opens at 14:00, and under 09–17 with
+    /// a break 12–13 it opens at noon. `minutesLeft` counts to that same minute, so two blocks are
+    /// compared by when they really lift; for a block that never does it counts to the edge of
+    /// `window`, and a caller comparing two lets `.never` win first.
+    func end(
+        of window: TimeWindow, in settings: GroupSettings, at date: Date
+    ) -> (minutesLeft: Int, end: BlockEnd) {
+        let parts = gregorian.dateComponents([.weekday, .hour, .minute], from: date)
+        let minutes = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        let edge = window.minutesUntilEnd(from: minutes)
+        guard !TimeWindow.strictBlocksEveryMinute(of: settings.timeWindows),
+              let weekday = parts.weekday,
+              let free = TimeWindow.firstUnblockedMinute(
+                  of: settings.timeWindows, fromWeekday: weekday, minutes: minutes
+              )
+        else { return (edge, .never) }
+        let week = 7 * TimeWindow.minutesInDay
+        let days = (free.weekday - weekday + 7) % 7
+        var left = days * TimeWindow.minutesInDay + free.minutes - minutes
+        if left < 0 { left += week }
+        return (left, .at(clockText(minutes: free.minutes)))
     }
 
     // MARK: - When a spent day is worth anything again

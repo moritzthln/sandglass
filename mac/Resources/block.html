@@ -243,12 +243,26 @@
     open.textContent = asked ? "Ask again" : "Enter password";
     var bytes = new Uint8Array(8);
     window.crypto.getRandomValues(bytes);
-    var nonce = Array.prototype.map.call(bytes, function (b) {
+    /* The moment of the press goes first, so an app that was relaunched since can tell an old
+       press still standing in the address from a new one. See AnsweredAsks. */
+    var nonce = Date.now() + "." + Array.prototype.map.call(bytes, function (b) {
       return (b < 16 ? "0" : "") + b.toString(16);
     }).join("");
-    var search = window.location.search.replace(/&ask=[^&]*/g, "");
-    open.href = window.location.pathname + search + "&ask=" + nonce;
+    open.href = window.location.pathname + withAsk(window.location.search, nonce);
   }
+
+  /* The query with any earlier nonce taken out and this one put on the end — wherever the old
+     one stood, the first parameter included, and with a "?" of its own when the query was
+     empty. The test suite runs this function as it stands between the markers. */
+  /* withAsk:begin */
+  function withAsk(search, nonce) {
+    var kept = search.replace(/^\?/, "").split("&").filter(function (part) {
+      return part !== "" && part.indexOf("ask=") !== 0;
+    });
+    kept.push("ask=" + nonce);
+    return "?" + kept.join("&");
+  }
+  /* withAsk:end */
 
   /* The address, but only when the name is not already saying it.
      A group made of one website is called by that website — "instagram.com", or "TikTok" — so

@@ -233,39 +233,50 @@ public struct ClearedPage: Equatable, Sendable {
 ///
 /// Short, because it is only ever covering the gap between asking a browser to go somewhere and its
 /// saying that it has.
+///
+/// **One record per tab**, not one slot. Two windows sent away within the same three seconds —
+/// two browsers, or two windows of one — each have a navigation in flight, and a single slot let
+/// the second send overwrite the first, so the first tab's stale reading was decided on again.
 public struct SentToBlockPage: Equatable, Sendable {
 
     /// How long a navigation is given to show up in what the browser reports. Generous against a
     /// browser busy rendering, and far shorter than any countdown it could hide.
     public static let settleSeconds: TimeInterval = 3
 
-    private var tab: BrowserTab?
-    private var address: String?
-    private var at: Date?
+    private struct Sent: Equatable, Sendable {
+        let address: String
+        let at: Date
+    }
+
+    private var sent: [BrowserTab: Sent] = [:]
 
     public init() {}
 
     /// `address` is what the browser reported the tab was on when it was told to leave — the whole
-    /// address, which is the only thing a stale reading of that same tab will match.
+    /// address, which is the only thing a stale reading of that same tab will match. Records that
+    /// have settled are dropped on the way, so the list is only ever the sends still in flight.
     public mutating func record(tab: BrowserTab, from address: String, now: Date) {
-        self.tab = tab
-        self.address = address
-        at = now
+        sent = sent.filter { now.timeIntervalSince($0.value.at) < Self.settleSeconds }
+        sent[tab] = Sent(address: address, at: now)
     }
 
     /// Whether this tab has just been sent away from this exact address and may not be sent again
     /// while it catches up.
     public func isSettling(tab: BrowserTab, address: String, now: Date) -> Bool {
-        guard self.tab == tab, self.address == address, let at else { return false }
-        return now.timeIntervalSince(at) < Self.settleSeconds
+        guard let record = sent[tab], record.address == address else { return false }
+        return now.timeIntervalSince(record.at) < Self.settleSeconds
     }
 
-    /// The navigation arrived, or the user went somewhere else entirely. Either way there is
-    /// nothing left to wait for.
+    /// The navigation of this tab arrived, or the user took it somewhere else entirely. Either
+    /// way there is nothing left to wait for there — and the other tabs still in flight keep
+    /// their three seconds.
+    public mutating func forget(tab: BrowserTab) {
+        sent.removeValue(forKey: tab)
+    }
+
+    /// Every record at once.
     public mutating func forget() {
-        tab = nil
-        address = nil
-        at = nil
+        sent.removeAll()
     }
 }
 

@@ -46,9 +46,13 @@ public enum LegacyMigration {
         else { return .nothingToDo }
         do {
             try fm.createDirectory(at: current, withIntermediateDirectories: true)
+            // The config last: it is the guard above, so while any other file is still behind it
+            // stays behind too, and a move that fails halfway is picked up by the next launch
+            // rather than left for good. Moved first, a full disk on the state file turned into a
+            // Sandglass with the user's groups and none of their history, and nothing left to do.
             let names = try fm.contentsOfDirectory(atPath: legacy.path)
                 .filter { $0 != breadcrumbName }
-                .sorted()
+                .sorted { ($0 == "config.json" ? 1 : 0, $0) < ($1 == "config.json" ? 1 : 0, $1) }
             var moved: [String] = []
             for name in names
             where !fm.fileExists(atPath: current.appendingPathComponent(name).path) {
@@ -60,7 +64,7 @@ public enum LegacyMigration {
             }
             let crumb = "Sandglass (formerly AppBlock) moved this data to \(current.path)\n"
             try? Data(crumb.utf8).write(to: legacy.appendingPathComponent(breadcrumbName))
-            return .moved(moved)
+            return .moved(moved.sorted())
         } catch {
             return .failed(error.localizedDescription)
         }

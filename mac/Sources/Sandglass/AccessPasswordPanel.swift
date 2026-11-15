@@ -53,23 +53,50 @@ struct AccessPasswordField: View {
 /// web page can end up in an address and the history. Small and ordinary rather than the full
 /// pause screen: somebody asked for it by pressing a button, so it is a question, not a block.
 /// One at a time — a second press replaces what the first one asked about.
+///
+/// The window's own close button is the Cancel button: it hands the keyboard back to the browser
+/// the same way. And a window about a page that no longer needs its password is closed for it —
+/// see `close(ifAbout:)`.
 @MainActor
-final class AccessPasswordPanel {
+final class AccessPasswordPanel: NSObject, NSWindowDelegate {
     private var panel: NSPanel?
+    /// The page the open prompt is about, and what leaving it does.
+    private var asked: (target: String, cancel: () -> Void)?
 
-    func show(name: String, submit: @escaping (String) -> String?, cancel: @escaping () -> Void) {
+    func show(
+        name: String, target: String,
+        submit: @escaping (String) -> String?, cancel: @escaping () -> Void
+    ) {
         let content = AccessPasswordPrompt(name: name, submit: submit, cancel: cancel)
         let window = panel ?? makePanel()
         window.contentView = NSHostingView(rootView: content)
         panel = window
+        asked = (target, cancel)
         window.center()
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
     func close() {
+        asked = nil
         panel?.orderOut(nil)
         panel?.contentView = nil
+    }
+
+    /// Closes the prompt when it is about `target`. The block it was asked under has ended or
+    /// stopped asking for a password, and a field left standing would answer a question nobody is
+    /// asking any more.
+    func close(ifAbout target: String) {
+        guard asked?.target == target else { return }
+        close()
+    }
+
+    /// The red button. Left to itself it would hide the window and nothing else, with the browser
+    /// still waiting behind it for the keyboard.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        asked?.cancel()
+        close()
+        return false
     }
 
     private func makePanel() -> NSPanel {
@@ -82,6 +109,7 @@ final class AccessPasswordPanel {
         window.level = .floating
         window.isReleasedWhenClosed = false
         window.hidesOnDeactivate = false
+        window.delegate = self
         return window
     }
 }
