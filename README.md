@@ -113,11 +113,16 @@ and it changes here) or one you set for the group alone. A correct password open
 its open length (30 minutes if it has none), and then it locks again. On a website the block page
 offers an **Enter password** button, and Sandglass asks in a small window of its own, so the
 password never lands in the address bar or the browser's history; for an app the pause screen has
-the field. Five wrong tries in a row mean a one-minute wait. Strict windows, a date you set and
-"Block everything" still win.
+the field. Five wrong tries in a row at the same password mean a one-minute wait, and quitting
+does not reset it. Strict windows, a date you set and "Block everything" still win.
+
+With **Only during strict windows**, the password is the way through the group's strict windows
+instead: it opens the group for its open length but never past the end of that window, and
+outside every window the group spends its budget like any other.
 
 The same password guards the ways around it: the group's settings sit behind it, "Unblock
-everything", the emergency pass and the forgotten-passcode hour do not open the group, and turning
+everything", the emergency pass and the forgotten-passcode hour do not open the group while the
+password holds it, and turning
 off "Start at login and keep running" asks for it. It is a household lock, not a security
 boundary: anyone with an administrator account can still remove the app.
 
@@ -126,7 +131,8 @@ boundary: anyone with an administrator account can still remove the app.
 <img alt="The Settings page: protection status, start at login, Accessibility granted, block or unblock everything, and the settings lock." src="assets/settings.png" width="880">
 
 Block everything for a while, take an unblock that waits first, use the weekly emergency pass,
-or lock the settings behind a timer or a passcode.
+or lock the settings behind a timer or a passcode. An unlocked settings window locks again after
+ten minutes without activity.
 
 ## Install
 

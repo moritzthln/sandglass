@@ -262,7 +262,11 @@ private func testWithNoSettingsPasscodeTheGroupStaysShut() {
     var settings = GroupSettings.standard
     settings.accessPassword = .settingsPasscode
     let (engine, target) = makeEngine(settings: settings, clock: clock)
-    expectEqual(engine.decision(targetID: target.id), passwordDecision, "still blocked with no passcode set")
+    expectEqual(
+        engine.decision(targetID: target.id),
+        .blocked(reason: .passwordRequired, untilText: "Opens with the settings passcode · none is set"),
+        "still blocked with no passcode set, and the screen says why nothing it is shown can open it"
+    )
     expectEqual(engine.tryAccessPassword("", targetID: target.id), .noSettingsPasscode, "an empty try opens nothing")
     expectEqual(engine.tryAccessPassword("anything", targetID: target.id), .noSettingsPasscode, "nor does any other")
     for _ in 1...6 { _ = engine.tryAccessPassword("x", targetID: target.id) }

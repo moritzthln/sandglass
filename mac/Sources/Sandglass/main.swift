@@ -179,14 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItemController = StatusItemController(appState: state)
         state.start()
-        // After a flight the windows and the day boundary follow the zone the Mac is in, not the
-        // one it launched in. The system zone is cached per process, hence the reset first.
-        timeZoneObserver = NotificationCenter.default.addObserver(
-            forName: .NSSystemTimeZoneDidChange, object: nil, queue: .main
-        ) { [weak state] _ in
-            NSTimeZone.resetSystemTimeZone()
-            MainActor.assumeIsolated { state?.systemTimeZoneChanged(to: TimeZone.current) }
-        }
+        observeTimeZone(for: state)
         blocker.start(appState: state)
         appState = state
         self.blocker = blocker
@@ -207,6 +200,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         applyManualSeams(to: state)
+    }
+
+    /// After a flight the windows and the day boundary follow the zone the Mac is in, not the one
+    /// it launched in. The system zone is cached per process, hence the reset first.
+    private func observeTimeZone(for state: AppState) {
+        timeZoneObserver = NotificationCenter.default.addObserver(
+            forName: .NSSystemTimeZoneDidChange, object: nil, queue: .main
+        ) { [weak state] _ in
+            NSTimeZone.resetSystemTimeZone()
+            MainActor.assumeIsolated { state?.systemTimeZoneChanged(to: TimeZone.current) }
+        }
     }
 
     /// The rest of the manual test harness, gathered.

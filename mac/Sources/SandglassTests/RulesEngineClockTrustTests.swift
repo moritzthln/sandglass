@@ -13,6 +13,7 @@ func runEngineClockTrustTests() {
     testARelaunchOnTheSameBootRemembersTheHighWater()
     testARelaunchOnTheSameBootHoldsAStrictWindow()
     testARebootIsWhereTheClockIsBelievedAgain()
+    testARebootTheUptimeCannotSeeStillDropsTheTwins()
     testTheAnchorIsNotWrittenEverySecond()
     testSmallStepsAddUpToAClockChange()
     testHonestDriftIsFollowedSlowly()
@@ -123,6 +124,27 @@ private func testTheAnchorIsNotWrittenEverySecond() {
     clock.advance(seconds: 3600)
     _ = engine.tick()
     expect(engine.state.clockAnchor != first, "an hour later it is taken again")
+}
+
+/// A reboot the uptime comparison cannot see: the new boot has already run longer than the old
+/// one had when it last wrote a twin. The boot names differ, so the twins are measured from a
+/// counter that no longer exists and have to go — the session is then judged by its wall end,
+/// which is two hours behind us, instead of running on for the twin's remaining minutes.
+private func testARebootTheUptimeCannotSeeStillDropsTheTwins() {
+    let clock = FakeClock(august(11, 12), uptime: 1_000, bootSession: "boot-1")
+    let (engine, target) = makeEngine(clock: clock)
+    _ = engine.consumeOpen(targetID: target.id)
+    _ = engine.tick()
+    expect(engine.state.sessions[target.groupID] != nil, "a session is running before the reboot")
+
+    let restarted = makeEngine(
+        targets: [target],
+        groupSettings: [target.groupID: .standard],
+        state: engine.state,
+        clock: FakeClock(august(11, 14), uptime: 1_100, bootSession: "boot-2")
+    )
+    _ = restarted.tick()
+    expectNil(restarted.state.sessions[target.groupID], "the session ended at its wall time")
 }
 
 // MARK: - Many small steps

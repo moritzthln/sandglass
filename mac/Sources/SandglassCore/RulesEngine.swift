@@ -55,9 +55,9 @@ public final class RulesEngine {
         self.windows = windows
         streak = StreakScoring(calendar: calendar, gregorian: windows.gregorian)
         // Uptime means nothing across a restart, and this is the one moment the engine can tell
-        // that one happened: a state off disk whose twins were written at a reading this machine
-        // has not reached. See `EngineState.dropUptimeTwins`.
-        self.state.dropUptimeTwinsIfStale(at: clock.uptime)
+        // that one happened: a state off disk written on another boot, or whose twins were written
+        // at a reading this machine has not reached. See `EngineState.dropUptimeTwinsIfStale`.
+        self.state.dropUptimeTwinsIfStale(at: clock.uptime, bootSession: clock.bootSession)
         // A session with no end is one no code writes any more and nothing would ever end: no
         // reap, no warning, no count. Only a very old or hand-edited file carries one.
         self.state.sessions = self.state.sessions.filter { $0.value.endsAt != nil }

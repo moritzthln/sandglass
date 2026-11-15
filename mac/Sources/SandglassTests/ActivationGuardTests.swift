@@ -150,7 +150,7 @@ private func testHiddenAppIsForgottenOnPurpose() {
 /// suppresses no recheck at all, so the relock pause screen appears over the Space instead of
 /// waiting for the user to switch away and back.
 private func testAHideThatWasRefusedSuppressesNothing() {
-    var hidden = RecentlyHidden(window: 2)
+    let hidden = RecentlyHidden(window: 2)
     // No `record`, because macOS declined to hide anything.
     expect(
         !hidden.isRecent("com.apple.Notes", now: t0),
