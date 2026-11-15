@@ -179,7 +179,8 @@ public final class AppState {
     // MARK: - Bookkeeping
 
     @ObservationIgnored private var timer: Timer?
-    @ObservationIgnored private var lastBlockedGroups: Set<String> = []
+    /// What the last pass found blocked and standing down; see `BlockEdge`.
+    @ObservationIgnored private var lastEdge = BlockEdge.none
     /// The groups a strict window or a dated block is holding shut, out of the last pass. Read by
     /// `refreshStatus` alone; see `AppStateProjection.hardBlockedGroups`.
     @ObservationIgnored private var hardBlockedGroups: Set<String> = []
@@ -273,7 +274,7 @@ public final class AppState {
     /// initial sweep, because `didActivateApplication` does not fire for an app that is
     /// already in front either. `AppStateTests` pins this contract.
     public func prime() {
-        lastBlockedGroups = recompute()
+        lastEdge = recompute()
         saveStateIfChanged()
         onStateChanged?()
     }
@@ -319,11 +320,12 @@ public final class AppState {
         // asked for on a clock. A hide that did not land is retried here and nowhere else.
         blocker.sweepBlockedApps()
         expirePasscodeResetIfDue()
+        endIdleSettingsVisitIfDue()
         finishMutation()
     }
 
-    /// Re-derives everything, tells the blocker only when the set of blocked groups actually
-    /// changed, and persists what moved. Every mutation and every tick ends here.
+    /// Re-derives everything, tells the blocker only when what is blocked or standing down
+    /// actually changed, and persists what moved. Every mutation and every tick ends here.
     ///
     /// The blocker is not told on a schedule: a strict window opening emits no engine effect
     /// at all, so the comparison against the last tick is the only thing that notices it —
@@ -333,9 +335,9 @@ public final class AppState {
     /// every path that spends or refuses an open leaves the same trail, and that is only true
     /// while there is one place the trail is left.
     func finishMutation(forceRecheck: Bool = false, notify: Bool = true) {
-        let blocked = recompute()
-        let changed = blocked != lastBlockedGroups
-        lastBlockedGroups = blocked
+        let edge = recompute()
+        let changed = edge != lastEdge
+        lastEdge = edge
         if changed || forceRecheck { blocker.recheckFrontmost() }
         saveStateIfChanged()
         if notify { onStateChanged?() }
@@ -343,14 +345,14 @@ public final class AppState {
 
     // MARK: - Deriving what the UI shows
 
-    /// Returns the ids of the groups that are hard-blocked right now.
+    /// Returns what is hard-blocked and what the engine is standing down over right now.
     ///
     /// Every derivation happens in `EngineReadout.project`, which publishes nothing; what is
     /// left here is publishing it. Each field is assigned only when it differs, because an
     /// observer woken once a second by an identical value is a settings window that redraws
     /// itself all day for nothing.
     @discardableResult
-    private func recompute() -> Set<String> {
+    private func recompute() -> BlockEdge {
         pauseBreak.expireNote()
         let projection = readout.project()
         if stats != projection.stats { stats = projection.stats }
@@ -400,7 +402,7 @@ public final class AppState {
         // application is being hidden whole is worked out from this set.
         hardBlockedGroups = projection.hardBlockedGroups
         refreshStatus()
-        return projection.blockedGroups
+        return BlockEdge(blocked: projection.blockedGroups, rows: projection.budgets)
     }
 
     /// Republishes the icon and the warnings under it, and re-derives what a missing permission is

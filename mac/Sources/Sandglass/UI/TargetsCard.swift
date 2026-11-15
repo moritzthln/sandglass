@@ -31,6 +31,9 @@ struct TargetsCard: View {
     let appState: AppState
     let group: ConfigGroup
     @Binding var problem: String?
+    /// Whether a wait is standing over the page: every remove whose one move would loosen is then
+    /// drawn dead, rather than refused on the press. See `HeldControl`.
+    var tighteningOnly = false
     /// What the last add could not do — a site or an app that turned out to be blocked elsewhere.
     /// A note about one click rather than a state of the group.
     @State private var addProblem: String?
@@ -56,6 +59,7 @@ struct TargetsCard: View {
                 catalogue: appState.config.categories,
                 picked: settings.categories,
                 installed: installed,
+                tighteningOnly: tighteningOnly,
                 onToggle: toggle
             )
             .padding(.top, 10)
@@ -96,10 +100,9 @@ struct TargetsCard: View {
     /// exact form of adding a website, and it lives in that sheet as a second mode. The rules
     /// themselves are still listed on this card, and still edited from it.
     ///
-    /// Nothing on this card is drawn dead any more. A strict window used to freeze the group's
-    /// scope against shrinking and its rules whole, so `onAddRule` was withheld and every button
-    /// that takes something away was disabled. A window blocks and freezes nothing; what closes
-    /// this card is the group's own lock, and that closes the whole page rather than one control.
+    /// Both adds are always live: adding is a tightening, and no lock holds one. A strict window
+    /// used to freeze the group's scope and its rules whole; a window blocks and freezes nothing.
+    /// What is drawn dead here is a remove a running wait would refuse — see `HeldControl`.
     private var addControls: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
@@ -203,6 +206,7 @@ struct TargetsCard: View {
             category: category,
             settings: settings,
             installed: installed,
+            tighteningOnly: tighteningOnly,
             onRemoveMember: { targetID in edit { $0.categoryExceptions.insert(targetID) } },
             onUntick: { toggle(category, isOn: false) }
         )
@@ -218,14 +222,15 @@ struct TargetsCard: View {
     /// `Block · App` under every app, which is the section heading said again in a smaller font on
     /// every row. No edit either — one line is quicker to retype than a form is to open.
     ///
-    /// Taking a target out of a group that is blocking is refused, so inside the window the trash
-    /// is dead. Adding one is not refused and both buttons above stay live: it lands inside the
-    /// window and is blocked by it from that second.
+    /// Taking a target out is a loosening, so under a wait its trash is dead. Adding one is a
+    /// tightening and both buttons above stay live.
     private func targetRow(_ target: Target) -> some View {
-        row(icon: nil, title: RuleCopy.rowTitle(target), subtitle: nil, edit: nil) {
-            problem = appState.applyConfigEdit(
-                ConfigBuilder.removing(targetID: target.id, from: appState.config)
-            )
+        let removed = ConfigBuilder.removing(targetID: target.id, from: appState.config)
+        return row(
+            icon: nil, title: RuleCopy.rowTitle(target), subtitle: nil, edit: nil,
+            held: held(removed)
+        ) {
+            problem = appState.applyConfigEdit(removed)
         }
     }
 
@@ -236,12 +241,19 @@ struct TargetsCard: View {
     /// exception does, because an exception is what somebody comes looking for when a thing they
     /// expected to be blocked is not.
     ///
+    ///
+    /// Under a wait its trash is dead only when taking it out loosens — a block rule. An allow
+    /// rule's trash stays live, because removing one blocks more. The pencil stays live either
+    /// way: an edit can tighten, and the sheet's Save is refused on one that does not.
     private func ruleRow(_ rule: Rule) -> some View {
-        row(
+        var removed = appState.config
+        removed.groupSettings[group.id]?.rules.removeAll { $0.id == rule.id }
+        return row(
             icon: rule.action,
             title: rule.pattern,
             subtitle: RuleCopy.summary(rule),
-            edit: { editing = rule }
+            edit: { editing = rule },
+            held: held(removed)
         ) {
             edit { $0.rules.removeAll { $0.id == rule.id } }
         }
@@ -252,6 +264,7 @@ struct TargetsCard: View {
         title: String,
         subtitle: String?,
         edit: (() -> Void)?,
+        held: Bool = false,
         delete: @escaping () -> Void
     ) -> some View {
         HStack(alignment: .top, spacing: 10) {
@@ -267,6 +280,8 @@ struct TargetsCard: View {
                 iconButton("pencil", label: "Edit \(title)", action: edit)
             }
             iconButton("trash", label: "Remove \(title)", action: delete)
+                .disabled(held)
+                .help(held ? Self.heldHelp : "Remove \(title)")
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -293,6 +308,15 @@ struct TargetsCard: View {
             .accessibilityLabel(label)
     }
 
+    private static let heldHelp = "A lock is running — this would make the group easier"
+
+    private func held(_ proposed: Config) -> Bool {
+        HeldControl.isHeld(
+            tighteningOnly: tighteningOnly, from: appState.config, to: proposed,
+            onDay: appState.today
+        )
+    }
+
     // MARK: - Writing
 
     private var settings: GroupSettings {
@@ -301,14 +325,13 @@ struct TargetsCard: View {
 
     /// An edit keeps the rule's place in the list when it already has one, because declaration
     /// order is the matcher's last tie-break: a correction must not silently reorder the rules.
+    /// A new rule saved twice under its one id is one rule. See `ListUpsert`.
     @discardableResult
     private func save(_ rule: Rule) -> String? {
         edit { settings in
-            guard let index = settings.rules.firstIndex(where: { $0.id == rule.id }) else {
-                settings.rules.append(rule)
-                return
-            }
-            settings.rules[index] = rule
+            settings.rules = ListUpsert.upserting(
+                rule, into: settings.rules, appendsWhenMissing: true
+            ) ?? settings.rules
         }
     }
 

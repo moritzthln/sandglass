@@ -36,7 +36,7 @@ struct AddWebsiteButton: View {
         SecondaryPillButton(title: "Add website") { open = true }
             .sheet(isPresented: $open) {
                 AddWebsiteSheet(
-                    config: config, alreadyThere: alreadyThere, onAddRule: onAddRule
+                    config: config, alreadyThere: alreadyThere, onAddRule: addRule
                 ) { target in
                     // Closing on a refusal would throw away what was typed and leave the reason
                     // on a page this sheet is covering. The same rule the rule sheet follows.
@@ -47,6 +47,18 @@ struct AddWebsiteButton: View {
                     open = false
                 }
             }
+    }
+
+    /// The rule mode closes on a landed add exactly as the address mode does. It used to hand
+    /// `onAddRule` straight to the form, so nothing ever closed the sheet: the user saw no sign
+    /// the rule was in, and pressing Add again — the natural reaction — added it twice.
+    private var addRule: ((Rule) -> String?)? {
+        guard let onAddRule else { return nil }
+        return { rule in
+            let refusal = onAddRule(rule)
+            if refusal == nil { open = false }
+            return refusal
+        }
     }
 }
 

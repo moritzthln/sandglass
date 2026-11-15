@@ -161,6 +161,8 @@ enum WindowPresenter {
     private static var settings: NSWindow?
     /// Retained here because `NSWindow.delegate` is weak.
     private static var watcher: SettingsWindowWatcher?
+    /// Whether a sheet is up on the window, for the doors that wait for one. See `WindowSheets`.
+    private static let sheets = WindowSheets()
 
     /// The main window: sidebar plus whichever page it is showing. Resizable, and its floor
     /// comes from the view inside it — see `make`.
@@ -181,6 +183,16 @@ enum WindowPresenter {
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
             AXIsProcessTrustedWithOptions(options)
         }
+        // A window already open is brought forward and nothing else: rebuilding it under the user
+        // threw away the page, the sheet and the draft they were in the middle of. See
+        // `SettingsWindowOpen`.
+        if let open = settings,
+           SettingsWindowOpen.action(
+               exists: true, onScreen: open.isVisible || open.isMiniaturized
+           ) == .bringForward {
+            present(open)
+            return
+        }
         let window = settings ?? make(title: "Sandglass", resizable: true)
         settings = window
         // Traffic lights and nothing else: the sidebar carries the wordmark, so a title bar
@@ -194,6 +206,7 @@ enum WindowPresenter {
         let content = MainWindowView(appState: appState, initialSelection: selecting) {
             [weak window] in window?.performClose(nil)
         }
+        .environment(sheets)
         show(content, in: window)
     }
 
@@ -202,9 +215,11 @@ enum WindowPresenter {
     /// The gate ignores an open it already knows about, so bringing an open window forward does
     /// not restart its timer.
     private static func watch(_ window: NSWindow, appState: AppState) {
-        let watcher = watcher ?? SettingsWindowWatcher(appState: appState)
+        let watcher = watcher ?? SettingsWindowWatcher(appState: appState, sheets: sheets)
         self.watcher = watcher
         window.delegate = watcher
+        watcher.watchActivity(in: window)
+        sheets.isOpen = window.attachedSheet != nil
         appState.settingsWindowOpened()
     }
 
@@ -248,25 +263,5 @@ enum WindowPresenter {
         // focus — every text field on both screens would swallow keystrokes in silence.
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-    }
-}
-
-/// Tells `AppState` when a settings window goes away, which is what both halves of the settings
-/// lock are measured per visit against: the timer starts again, and a passcode entered during
-/// this visit is forgotten.
-///
-/// `windowWillClose` rather than SwiftUI's `onDisappear`. The red button orders the window out
-/// and leaves its view hierarchy standing, so `onDisappear` never fires for the one close that
-/// actually happens.
-@MainActor
-private final class SettingsWindowWatcher: NSObject, NSWindowDelegate {
-    let appState: AppState
-
-    init(appState: AppState) {
-        self.appState = appState
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        appState.settingsWindowClosed()
     }
 }

@@ -35,6 +35,10 @@ struct GroupEditorView: View {
     @State private var renaming = false
     @State private var draftName = ""
     @State private var confirmingDelete = false
+    /// Holds this group's door back while a sheet is open on the page, as the window's own door
+    /// is held. See `DoorDeferral`.
+    @State private var deferral = DoorDeferral()
+    @Environment(WindowSheets.self) private var sheets: WindowSheets?
 
     /// The door comes first, and it is the whole page rather than a sheet over it: with a
     /// passcode set on this group and this visit unanswered, nothing here is readable — not the
@@ -44,13 +48,17 @@ struct GroupEditorView: View {
     /// who came to read. The sidebar stays where it is either way — this is one page of a window
     /// that is otherwise open.
     var body: some View {
+        let showsDoor = deferral.showsDoor(
+            doorClosed: door.isClosed, sheetOpen: sheets?.isOpen ?? false
+        )
         Group {
-            if door.isClosed {
+            if showsDoor {
                 GroupDoorView(appState: appState, group: group)
             } else {
                 page
             }
         }
+        .onChange(of: showsDoor, initial: true) { _, drawn in deferral.drew(door: drawn) }
     }
 
     private var door: GroupDoor {
@@ -133,7 +141,10 @@ struct GroupEditorView: View {
             unmanagedNotice
         } else {
             HStack(alignment: .top, spacing: Metrics.cardSpacing) {
-                TargetsCard(appState: appState, group: group, problem: $problem)
+                TargetsCard(
+                    appState: appState, group: group, problem: $problem,
+                    tighteningOnly: tighteningOnly
+                )
                 // The Lock and Access cards are the group's and not the preset's, so they are added
                 // here rather than inside the column: `GroupDetailColumn` is exactly the cards a
                 // group and a preset share, and a preset is a template nothing can be locked to.

@@ -39,6 +39,11 @@ struct AdvancedRuleForm: View {
     @State private var action: Rule.Action = .block
     @State private var highPriority = false
     @State private var refusal: String?
+    /// The id a **new** rule is saved under, drawn once per form rather than once per press. A
+    /// second press of Add — Return reaching the field and the default button both, or a press
+    /// made because nothing seemed to happen — then replaces the rule it already added instead
+    /// of appending a twin. See `ListUpsert`.
+    @State private var newID = UUID().uuidString
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -149,7 +154,7 @@ struct AdvancedRuleForm: View {
     private func save() {
         guard canSave else { return }
         refusal = onSave(Rule(
-            id: existing?.id ?? UUID().uuidString,
+            id: existing?.id ?? newID,
             pattern: pattern,
             matchType: matchType,
             action: action,

@@ -25,6 +25,9 @@ func runLaunchAgentTests() {
         testAnUnreadablePlistIsRewritten()
         testNothingIsReconciledWithoutAnAgentOrABundle()
         testRemovingTakesThePlistWithIt()
+        testThePlistIsGoneBeforeBootoutIsAsked()
+        testARefusedBootoutPutsThePlistBack()
+        testTheAgentsOwnJobBootsItselfOutWithoutWaiting()
     }
 }
 
@@ -217,6 +220,109 @@ private func testRemovingTakesThePlistWithIt() {
             "off disk and not merely forgotten"
         )
         expectNil(manager.setInstalled(false), "removing what is not there is not an error either")
+    }
+}
+
+// MARK: - Removing while launchd is listening
+
+/// launchd, stood in for: every call is written down with whether the plist was on disk at that
+/// moment, and `print` answers that the job is loaded for as long as `jobLoaded` says so.
+@MainActor
+private final class FakeLaunchd {
+    var calls: [(arguments: [String], plistOnDisk: Bool, waited: Bool)] = []
+    var jobLoaded = true
+    var bootoutUnloads = true
+    var plistURL: URL?
+
+    var launchctl: Launchctl {
+        Launchctl(
+            run: { [self] arguments in
+                record(arguments, waited: true)
+                switch arguments.first {
+                case "bootout":
+                    if bootoutUnloads { jobLoaded = false }
+                    return (0, "")
+                case "print": return jobLoaded ? (0, "gui/501/agent = {") : (113, "not found")
+                default: jobLoaded = true; return (0, "")
+                }
+            },
+            startDetached: { [self] arguments in
+                record(arguments, waited: false)
+                return true
+            }
+        )
+    }
+
+    private func record(_ arguments: [String], waited: Bool) {
+        let onDisk = plistURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+        calls.append((arguments, onDisk, waited))
+    }
+
+    var bootouts: [(arguments: [String], plistOnDisk: Bool, waited: Bool)] {
+        calls.filter { $0.arguments.first == "bootout" }
+    }
+}
+
+@MainActor
+private func launchdManager(_ dir: URL, _ launchd: FakeLaunchd, ownJob: Bool) -> LaunchAgentManager {
+    let manager = LaunchAgentManager(
+        directory: dir,
+        bundleURL: URL(fileURLWithPath: "/Applications/Sandglass.app"),
+        talksToLaunchd: true,
+        launchctl: launchd.launchctl,
+        runsAsTheAgent: ownJob
+    )
+    launchd.plistURL = manager.plistURL
+    return manager
+}
+
+/// `bootout` may be the last thing the process does, so nothing may be left to do after it.
+@MainActor
+private func testThePlistIsGoneBeforeBootoutIsAsked() {
+    withAgentDir { dir in
+        let launchd = FakeLaunchd()
+        let manager = launchdManager(dir, launchd, ownJob: false)
+        expectNil(manager.setInstalled(true), "installed")
+        launchd.calls.removeAll()
+        expectNil(manager.setInstalled(false), "and switched off")
+        expectEqual(launchd.bootouts.count, 1, "one bootout")
+        expect(launchd.bootouts.first?.plistOnDisk == false, "asked only once the plist was gone")
+        expect(!manager.isInstalled, "and it stays gone")
+    }
+}
+
+/// A job launchd will not let go of keeps its plist, or the toggle would say "off" over a live job.
+@MainActor
+private func testARefusedBootoutPutsThePlistBack() {
+    withAgentDir { dir in
+        let launchd = FakeLaunchd()
+        let manager = launchdManager(dir, launchd, ownJob: false)
+        expectNil(manager.setInstalled(true), "installed")
+        launchd.bootoutUnloads = false
+        let problem = manager.setInstalled(false)
+        expect(problem?.hasPrefix("Couldn't disable") == true, "the refusal is reported")
+        expect(manager.isInstalled, "and the plist is back on disk, because the job is still there")
+    }
+}
+
+/// Sandglass running as the agent's own job: `bootout` ends this process, so it is started and
+/// not waited for — the main thread has to be free for the `SIGTERM` handler that flushes.
+@MainActor
+private func testTheAgentsOwnJobBootsItselfOutWithoutWaiting() {
+    withAgentDir { dir in
+        let launchd = FakeLaunchd()
+        let manager = launchdManager(dir, launchd, ownJob: true)
+        expectNil(manager.setInstalled(true), "installed")
+        launchd.calls.removeAll()
+        expectNil(manager.setInstalled(false), "switched off")
+        expectEqual(launchd.bootouts.count, 1, "one bootout")
+        expect(launchd.bootouts.first?.waited == false, "started, never waited for")
+        expect(launchd.bootouts.first?.plistOnDisk == false, "with the plist already gone")
+        expect(
+            !launchd.calls.contains { $0.arguments.first == "print" },
+            "and nothing asked afterwards: the answer would arrive after the process had gone"
+        )
+        expect(!manager.isInstalled, "the next login finds no agent")
     }
 }
 

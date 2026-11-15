@@ -73,6 +73,21 @@ extension AppState {
         finishMutation()
     }
 
+    /// Somebody did something in the settings window: a key, a click, a scroll. Postpones the end
+    /// of an idle visit and nothing else, so it publishes nothing — it arrives with every
+    /// keystroke, and redrawing the window for each would be work with no change to show.
+    public func settingsActivity() {
+        visit.noteActivity(at: reading)
+    }
+
+    /// Ends a visit nobody has been at for ten minutes, from the loop. See
+    /// `SettingsVisit.endIfIdle`; the loop's own `finishMutation` publishes what it changed.
+    func endIdleSettingsVisitIfDue() {
+        _ = visit.endIfIdle(
+            for: config, at: reading, emergencyPassRunning: emergencyPassRunning
+        )
+    }
+
     /// The user has moved off one group's page — another group, or another page of the window.
     ///
     /// The third thing a visit has to hear about, beside the window coming up and going away, and

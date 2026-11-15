@@ -62,8 +62,7 @@ struct TimelineStripView: View {
                         ofKind: kind, in: windows, onWeekday: weekday
                     )
                     ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                        Rectangle()
-                            .fill(Palette.windowTint(kind))
+                        WindowFill(kind: kind)
                             .frame(width: max(2, geometry.size.width * segment.width))
                             .offset(x: geometry.size.width * segment.start)
                     }
@@ -90,20 +89,20 @@ struct TimelineStripView: View {
     private var axis: some View {
         HStack(spacing: 0) {
             Color.clear.frame(width: Self.labelWidth + Self.labelGap, height: 1)
-            ForEach(Array(Self.axisLabels.enumerated()), id: \.offset) { index, label in
+            ForEach(Array(TimelineAxis.labels().enumerated()), id: \.offset) { index, label in
                 if index > 0 { Spacer(minLength: 2) }
                 Text(label).font(.system(size: 9)).foregroundStyle(.secondary)
             }
         }
     }
 
-    private static let axisLabels = ["12 AM", "6 AM", "12 PM", "6 PM", "12 AM"]
-
     private var legend: some View {
         HStack(spacing: 12) {
             ForEach(kindsPresent, id: \.self) { kind in
                 HStack(spacing: 5) {
-                    Circle().fill(Palette.windowTint(kind)).frame(width: 7, height: 7)
+                    WindowFill(kind: kind)
+                        .frame(width: 12, height: 8)
+                        .clipShape(RoundedRectangle(cornerRadius: 2))
                     Text(TimeWindowCopy.kind(kind)).font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -118,5 +117,41 @@ struct TimelineStripView: View {
         guard !windows.isEmpty else { return "No time windows" }
         return windows.map { "\(TimeWindowCopy.kind($0.kind)): \(TimeWindowCopy.schedule($0))" }
             .joined(separator: ", ")
+    }
+}
+
+/// One kind of window, filled: solid for a strict block, hatched for a break.
+///
+/// **Not by colour alone.** Red against green is the one pair a red-green colour blindness cannot
+/// tell apart, and it was the only difference between the two on the strip and in its legend. The
+/// hatching is a second cue that survives any palette, and it says the right thing too — a break
+/// is a hole in the week, drawn as something see-through.
+struct WindowFill: View {
+    let kind: TimeWindow.Kind
+
+    var body: some View {
+        switch kind {
+        case .strictBlock:
+            Rectangle().fill(Palette.windowTint(kind))
+        case .break:
+            Rectangle()
+                .fill(Palette.windowTint(kind).opacity(0.3))
+                .overlay(Hatch().stroke(Palette.windowTint(kind), lineWidth: 1.5))
+                .clipped()
+        }
+    }
+}
+
+/// Diagonal lines across a rectangle, four points apart.
+private struct Hatch: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        var x = rect.minX - rect.height
+        while x < rect.maxX {
+            path.move(to: CGPoint(x: x, y: rect.maxY))
+            path.addLine(to: CGPoint(x: x + rect.height, y: rect.minY))
+            x += 4
+        }
+        return path
     }
 }

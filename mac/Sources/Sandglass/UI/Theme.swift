@@ -53,7 +53,8 @@ enum Palette {
     ///
     /// Semantic system colours, so they follow the user's appearance and accessibility
     /// settings: red for a hard block, green for a deliberate hole. Never the only signal —
-    /// every segment is named in the legend and every row carries its kind in words.
+    /// a break is drawn hatched as well (`WindowFill`), every segment is named in the legend,
+    /// and every row carries its kind in words.
     static func windowTint(_ kind: TimeWindow.Kind) -> Color {
         switch kind {
         case .strictBlock: return .red
