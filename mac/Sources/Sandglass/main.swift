@@ -38,15 +38,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the keep-alive dialogue on screen behind the user's back. The signal is what
     /// `installTerminationSignalHandler` is for, and it shuts down without consulting the policy.
     ///
+    /// **Why it waits.** The older copy's signal handler flushes the usage it was holding back,
+    /// and this one reads `state.json` next — so it waits for the older copy to be gone first,
+    /// and kills it only past a short deadline. See `InstanceHandover`.
+    ///
     /// Under `swift run` there is no bundle identifier and nothing matches, so a dev build never
     /// retires the installed copy and the installed copy never retires it.
     private static func retireOlderInstances() {
         guard let identifier = Bundle.main.bundleIdentifier else { return }
         let ours = NSRunningApplication.current.processIdentifier
-        for other in NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
-        where other.processIdentifier != ours {
-            kill(other.processIdentifier, SIGTERM)
-        }
+        let older = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+            .map(\.processIdentifier)
+            .filter { $0 != ours }
+        let killed = InstanceHandover.system.retire(older)
+        if !killed.isEmpty { NSLog("Sandglass: an older instance did not quit in time: \(killed)") }
     }
 
     /// The one-time move from the app's previous name — see `LegacyMigration`.
