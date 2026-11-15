@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A running lock now also holds a group's password when it is set together with "Only during
+  strict windows" in one edit. Before, that edit counted as adding friction, and it opened the
+  group's strict windows to the password while the lock was meant to keep them shut.
+
 ## [1.2.0] - 2026-11-15
 
 ### Added

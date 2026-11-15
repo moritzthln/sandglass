@@ -197,10 +197,15 @@ public enum EditDirection {
             // the group behind it, and removing it, replacing it or switching its source is the
             // way back out.
             && passcodeHolds(after.accessPassword, against: before.accessPassword)
-            // Narrowing the password to the strict windows opens the free hours to the budget,
-            // so it is a way out too; widening it back is a tightening anyone may make.
-            && (before.accessPassword == nil
-                || !after.passwordOnlyInStrictWindows || before.passwordOnlyInStrictWindows)
+            // A password scoped to the strict windows is a way through hours that were shut,
+            // however the edit gets there: narrowing an existing password, or setting password
+            // and scope in one go. Taking that way away again is a tightening anyone may make.
+            && (!opensStrictWindows(after) || opensStrictWindows(before))
+    }
+
+    /// Whether the group's strict windows open with its password.
+    private static func opensStrictWindows(_ settings: GroupSettings) -> Bool {
+        settings.accessPassword != nil && settings.passwordOnlyInStrictWindows
     }
 
     /// A passcode that was not there may be set; one that was there has to survive untouched.

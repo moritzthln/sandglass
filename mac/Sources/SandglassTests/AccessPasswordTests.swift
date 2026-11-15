@@ -26,6 +26,7 @@ func runAccessPasswordTests() {
     testOutsideItsWindowsAWindowPasswordGroupSpendsItsBudget()
     testAnOrdinaryOpenDoesNotRunOnIntoTheWindow()
     testNarrowingThePasswordToTheWindowsLoosens()
+    testAWindowPasswordSetInOneEditLoosens()
 }
 
 private let password = "drive-2026"
@@ -423,5 +424,29 @@ private func testNarrowingThePasswordToTheWindowsLoosens() {
     expect(
         !EditDirection.loosens(group: youtubeGroup, from: config(after), to: config(before), onDay: "2026-08-10"),
         "and asking for it all the time again is a tightening"
+    )
+}
+
+private func testAWindowPasswordSetInOneEditLoosens() {
+    let config = { (settings: GroupSettings) in
+        Config(version: 1, targets: [], groupSettings: [youtubeGroup: settings])
+    }
+    let hard = standardSettings(windows: [officeHours])
+    let plain = passwordSettings(hard, sessionMinutes: hard.sessionMinutes)
+    var opened = plain
+    opened.passwordOnlyInStrictWindows = true
+    expect(
+        EditDirection.loosens(group: youtubeGroup, from: config(hard), to: config(opened), onDay: "2026-08-10"),
+        "a password that opens the strict windows, set together with its scope, is a way through them"
+    )
+    var staleScope = hard
+    staleScope.passwordOnlyInStrictWindows = true
+    expect(
+        EditDirection.loosens(group: youtubeGroup, from: config(staleScope), to: config(opened), onDay: "2026-08-10"),
+        "and so is a password added under a scope that was already ticked"
+    )
+    expect(
+        !EditDirection.loosens(group: youtubeGroup, from: config(hard), to: config(plain), onDay: "2026-08-10"),
+        "a password for every hour still only adds friction"
     )
 }
