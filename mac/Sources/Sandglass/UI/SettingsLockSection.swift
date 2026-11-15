@@ -20,6 +20,9 @@ struct SettingsLockSection: View {
     /// page's banner: a refusal describes one click, and the banner is at the top of a scroll
     /// view that this card can sit well below.
     @State private var problem: String?
+    /// What removing the passcode would strand, while the question is up. See
+    /// `AppState.settingsPasscodeRemovalWarning`.
+    @State private var removalWarning: String?
 
     private var lock: SettingsLock { appState.config.settingsLock }
     private var state: SettingsLockState { appState.settingsLockState }
@@ -40,6 +43,15 @@ struct SettingsLockSection: View {
         }
         .sheet(item: $sheet) { mode in
             PasscodeSheet(mode: mode, submit: submit(mode), dismiss: { sheet = nil })
+        }
+        .alert(
+            "Remove the passcode?",
+            isPresented: Binding(get: { removalWarning != nil }, set: { if !$0 { removalWarning = nil } })
+        ) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) { removePasscode() }
+        } message: {
+            Text(removalWarning ?? "")
         }
     }
 
@@ -212,12 +224,21 @@ struct SettingsLockSection: View {
                     sheet = .set
                     return
                 }
-                edit {
-                    $0.passcode = nil
-                    $0.forgotStartedAt = nil
+                // A group that opens with this passcode would open with nothing: asked first.
+                if let warning = appState.settingsPasscodeRemovalWarning {
+                    removalWarning = warning
+                } else {
+                    removePasscode()
                 }
             }
         )
+    }
+
+    private func removePasscode() {
+        edit {
+            $0.passcode = nil
+            $0.forgotStartedAt = nil
+        }
     }
 
     private var coversQuickDisable: Binding<Bool> {

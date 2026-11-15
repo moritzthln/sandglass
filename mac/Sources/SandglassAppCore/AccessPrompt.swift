@@ -62,6 +62,17 @@ public enum AccessCopy {
     public static let noSettingsPasscode =
         "This group opens with the settings passcode, and none is set. Set one in Settings → Settings lock."
 
+    /// What removing the settings passcode would do to the groups that open with it, or `nil`
+    /// when none does. Asked before the removal rather than after: the groups are not blocked by
+    /// anything the removal would show, they simply never open again until a new one is set.
+    public static func removingSettingsPasscode(strands names: [String]) -> String? {
+        guard !names.isEmpty else { return nil }
+        let list = ListFormatter.localizedString(byJoining: names)
+        let they = names.count == 1 ? "\(list) opens" : "\(list) open"
+        return "\(they) with the settings passcode. Without one, nothing opens "
+            + (names.count == 1 ? "it" : "them") + " until a new passcode is set."
+    }
+
     public static func lockedOut(seconds: Int) -> String {
         "Too many tries. Try again in \(SettingsLockGate.countdownText(seconds))."
     }

@@ -100,7 +100,10 @@ private func testRelockWarningIsDeliveredOnce() {
     withTempDir { dir in
         let store = Store(directory: dir)
         try? store.saveConfig(groupedConfig())
-        try? store.saveState(stateWithSession(endingAt: noon.addingTimeInterval(45), startedAt: noon))
+        // A five-minute open with 45 seconds left: one no longer than the warning gets none at all.
+        try? store.saveState(
+            stateWithSession(endingAt: noon.addingTimeInterval(45), startedAt: noon.addingTimeInterval(-255))
+        )
 
         let clock = FakeClock(noon)
         let notifier = RecordingNotifier()

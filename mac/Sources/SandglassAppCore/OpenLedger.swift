@@ -129,6 +129,11 @@ struct OpenLedger {
         engine.verifyAccessPassword(password, groupID: groupID)
     }
 
+    /// The same for one entry any of these groups' passwords may answer. `nil` means one matched.
+    func verifyAnyAccessPassword(_ password: String, groupIDs: [String]) -> AccessAttempt? {
+        engine.verifyAnyAccessPassword(password, groupIDs: groupIDs)
+    }
+
     /// Seconds before this group checks a password again, or `nil`.
     func accessWaitSeconds(groupID: String) -> Int? {
         engine.accessWaitSeconds(groupID: groupID)
