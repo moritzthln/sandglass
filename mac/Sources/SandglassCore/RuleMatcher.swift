@@ -48,12 +48,18 @@ public enum RuleMatcher {
     /// Lower sorts earlier. Written as one tuple so the four steps of the doc comment above are
     /// four lines here and cannot drift apart.
     private static func rank(of entry: (offset: Int, element: Rule)) -> (Int, Int, Int, Int) {
-        (
-            entry.element.highPriority ? 0 : 1,
-            entry.element.matchType == .specificPage ? 0 : 1,
-            entry.element.action == .allow ? 0 : 1,
-            entry.offset
-        )
+        let standing = standing(of: entry.element)
+        return (standing.0, standing.1, entry.element.action == .allow ? 0 : 1, entry.offset)
+    }
+
+    /// The first two steps of the reading order on their own — what a rule says about how
+    /// deliberate it is, with nothing about the list it sits in. Lower is read first.
+    ///
+    /// `WebResolver` ranks two groups' block rules by this before it falls back to the group
+    /// order, so a high-priority rule in one group is not outranked by a plain one in a group whose
+    /// id happens to sort first.
+    static func standing(of rule: Rule) -> (Int, Int) {
+        (rule.highPriority ? 0 : 1, rule.matchType == .specificPage ? 0 : 1)
     }
 
     private static func firstMatch(in rules: [Rule], against target: String) -> Rule? {
