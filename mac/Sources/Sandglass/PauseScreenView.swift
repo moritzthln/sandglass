@@ -53,9 +53,11 @@ struct PauseScreenView: View {
                 .padding(.top, 10)
             // The way out never moves. Leaving has to stay predictable — only the button that
             // costs something is worth making the user look for.
+            // Escape presses it: leaving is the one direction a key may take the user for free.
             Button("Back to work", action: onDismiss)
                 .buttonStyle(.bordered)
                 .controlSize(.large)
+                .keyboardShortcut(.cancelAction)
         }
         .multilineTextAlignment(.center)
         .padding(48)
