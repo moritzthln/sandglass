@@ -228,14 +228,6 @@ public struct EngineState: Codable, Equatable, Sendable {
     /// is what this app ran on until now — and which somebody who reboots to shave a cooldown can
     /// indeed still change. The alternative, keeping the twins, would block for a length of time
     /// nobody chose.
-    /// The same, unless this machine can still vouch for them: a reading at or past the anchor
-    /// means no restart has happened since the newest twin was written. A state with no anchor at
-    /// all — one written before the twins existed — has nothing to drop and nothing to prove.
-    public mutating func dropUptimeTwinsIfStale(at uptime: TimeInterval) {
-        if let anchor = uptimeAnchor, uptime >= anchor { return }
-        dropUptimeTwins()
-    }
-
     public mutating func dropUptimeTwins() {
         focusSessionEndsAtUptime = nil
         protectionPausedUntilUptime = nil
@@ -244,6 +236,23 @@ public struct EngineState: Codable, Equatable, Sendable {
         uptimeAnchor = nil
         for groupID in sessions.keys { sessions[groupID]?.endsAtUptime = nil }
         accessAttempts?.dropUptimeTwins()
+    }
+
+    /// The same, unless this machine can still vouch for them.
+    ///
+    /// The boot names decide where both exist: the clock anchor carries the boot it was taken
+    /// on, and a different boot now means the twins count from a counter that is gone — even when
+    /// the new boot has already run longer than the old one had, which comparing uptimes alone
+    /// cannot see. Without names, a reading at or past the anchor means no restart has happened
+    /// since the newest twin was written. A state with no anchor at all — one written before the
+    /// twins existed — has nothing to drop and nothing to prove.
+    public mutating func dropUptimeTwinsIfStale(at uptime: TimeInterval, bootSession: String?) {
+        if let stored = clockAnchor?.bootSession, let current = bootSession, stored != current {
+            dropUptimeTwins()
+            return
+        }
+        if let anchor = uptimeAnchor, uptime >= anchor { return }
+        dropUptimeTwins()
     }
 
     /// Decoded by hand only because of `usageSecondsToday`, which V1.1 added and which is not

@@ -30,10 +30,14 @@ final class FakeClock: Clock, @unchecked Sendable {
         }
     }
 
+    /// `nil`, like a clock with no name for its boot, unless a case is about telling boots apart.
+    let bootSession: String?
+
     /// Uptime starts well clear of zero, so a test can drop it to simulate a reboot.
-    init(_ start: Date, uptime: TimeInterval = 10_000) {
+    init(_ start: Date, uptime: TimeInterval = 10_000, bootSession: String? = nil) {
         wall = start
         self.uptime = uptime
+        self.bootSession = bootSession
     }
 
     func advance(seconds: TimeInterval) {
