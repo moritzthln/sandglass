@@ -219,7 +219,16 @@ extension RulesEngine {
         if let remaining = budget.remainingSessionSeconds(managed.groupID) {
             return .allowed(remainingSessionSeconds: remaining)
         }
-        return .blocked(reason: .passwordRequired, untilText: "Opens with its password")
+        return .blocked(reason: .passwordRequired, untilText: "Opens with " + passwordNoun(managed))
+    }
+
+    /// What the screens call the secret that opens the group. Its own password, unless it opens
+    /// with the settings passcode while none is set: then nothing typed can open it, and a screen
+    /// still offering "its password" would be inviting guesses at a secret that does not exist.
+    private func passwordNoun(_ managed: GroupLookup.Managed) -> String {
+        guard managed.settings.accessPassword == .settingsPasscode,
+              config.settingsLock.passcode == nil else { return "its password" }
+        return "the settings passcode · none is set"
     }
 
     /// The same rung for a group whose password asks only inside its strict windows, asked by
@@ -236,7 +245,9 @@ extension RulesEngine {
            let remaining = budget.remainingSessionSeconds(managed.groupID) {
             return .allowed(remainingSessionSeconds: remaining)
         }
-        return .blocked(reason: .passwordRequired, untilText: untilText + " · opens with its password")
+        return .blocked(
+            reason: .passwordRequired, untilText: untilText + " · opens with " + passwordNoun(managed)
+        )
     }
 }
 
