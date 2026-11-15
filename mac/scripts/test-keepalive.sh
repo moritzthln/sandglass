@@ -99,6 +99,14 @@ if [ -e "$HOME/Library/LaunchAgents/com.moritz.appblock.agent.plist" ] \
   echo "  FAIL — an AppBlock install is still here. Launch Sandglass once to migrate it first." && exit 1
 fi
 [ -d "$REAL_SUPPORT_DIR" ] || CREATED_REAL_SUPPORT_DIR=1
+# Said out loud, because it is the one thing part B cannot redirect: launchd starts its copy of
+# the app without this script's environment, so that copy runs on the real support directory.
+# One this script created is removed again; one that was already here is the user's, and part B
+# reads and writes their configuration and history for the few seconds it runs.
+if [ "$CREATED_REAL_SUPPORT_DIR" = "0" ]; then
+  echo "  NOTE — part B runs on your real $REAL_SUPPORT_DIR (launchd passes no override)."
+  echo "         Your configuration and history are used, and kept, for the length of the run."
+fi
 PREFLIGHT_PASSED=1
 pass "nothing of Sandglass's is running or installed — teardown is armed"
 

@@ -164,6 +164,39 @@ public struct KnownBrowser: Equatable, Sendable {
             """
     }
 
+    /// What the guarded script below answers when the tab is no longer the one that was read.
+    public static let movedOnAnswer = "sandglass:moved-on"
+
+    /// The same navigation, sent only if the tab in front is still the one the poll read.
+    ///
+    /// Reading the address and moving the tab are two Apple events a poll apart, and both name
+    /// "the tab in front of the front window". A tab switched in between is a different tab, and
+    /// the unguarded line sent that innocent tab to the block page — or home. So the tab is taken
+    /// once, checked against the address it was read on (and, where the browser can name its
+    /// tabs, against its identity), and moved only if it still matches. A tab that moved on gets
+    /// `movedOnAnswer` back and nothing else; the next poll reads it afresh and decides on that.
+    ///
+    /// `expected` is the address exactly as the browser reported it through AppleScript, which is
+    /// what the check compares against. An address read off the accessibility tree is spelled
+    /// differently and must not be passed here — see `BrowserWatcher.Page.guardAddress`.
+    public func navigationScriptSource(
+        to address: String, ifShowing expected: String, tabID: String? = nil
+    ) -> String? {
+        guard let tabTerm else { return nil }
+        let movedOn = "return \"\(Self.movedOnAnswer)\""
+        let wanted = Self.appleScriptString(expected)
+        var checks = ["if ((URL of theTab) as text) is not \(wanted) then \(movedOn)"]
+        if let tabIDTerm, let tabID {
+            let named = Self.appleScriptString(tabID)
+            checks.append("if ((\(tabIDTerm) of theTab) as text) is not \(named) then \(movedOn)")
+        }
+        let lines = ["set theTab to \(tabTerm) of front window"] + checks
+            + ["set URL of theTab to \(Self.appleScriptString(address))"]
+        return (["with timeout of 1 second", "tell application id \"\(bundleID)\""]
+            + lines.map { "    " + $0 } + ["end tell", "end timeout"])
+            .joined(separator: "\n")
+    }
+
     /// An address as an AppleScript string literal.
     ///
     /// The addresses this app builds are percent-encoded and can hold neither character, so this

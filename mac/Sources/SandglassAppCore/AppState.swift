@@ -179,6 +179,12 @@ public final class AppState {
     // MARK: - Bookkeeping
 
     @ObservationIgnored private var timer: Timer?
+    /// The group this tick's second was charged to through the frontmost app, so the page poll
+    /// does not charge it again. See `recordPageSecond(forURL:)`.
+    @ObservationIgnored var chargedThisTick: String?
+    /// When a forgotten-passcode hour the disk refused may be written again. See
+    /// `expirePasscodeResetIfDue`.
+    @ObservationIgnored var passcodeResetRetryAt: Date?
     @ObservationIgnored private var lastBlockedGroups: Set<String> = []
     /// The groups a strict window or a dated block is holding shut, out of the last pass. Read by
     /// `refreshStatus` alone; see `AppStateProjection.hardBlockedGroups`.
@@ -314,8 +320,9 @@ public final class AppState {
     /// re-blocks the group if this was the second that reached its daily limit.
     private func tick() {
         for effect in engine.tick() { effects.apply(effect) }
-        ledger.recordSecond(inFrontmost: blocker.frontmostBundleID())
+        chargedThisTick = ledger.recordSecond(inFrontmost: blocker.frontmostBundleID())
         blocker.pollFrontmostPage()
+        chargedThisTick = nil
         // Beside the page poll and for the same reason: what no notification announces has to be
         // asked for on a clock. A hide that did not land is retried here and nowhere else.
         blocker.sweepBlockedApps()
@@ -744,7 +751,13 @@ public final class AppState {
     ///
     /// The settings lock is not consulted, and does not need to be: nothing is written, and the
     /// one caller runs behind an environment variable on a throwaway support directory.
+    ///
+    /// **And every edit after it stays in memory too.** The next edit is the demo configuration
+    /// with a change on top, and writing it would put the demo target in the user's file — so
+    /// from here on the run keeps its configuration to itself. See
+    /// `StatePersistence.keepsConfigInMemory`.
     public func seedConfigInMemory(_ newConfig: Config) {
+        persistence.keepsConfigInMemory = true
         engine.updateConfig(newConfig)
         hasNothingToProtect = false
         finishMutation(forceRecheck: true)

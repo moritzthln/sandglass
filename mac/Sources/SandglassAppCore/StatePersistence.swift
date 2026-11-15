@@ -73,6 +73,10 @@ final class StatePersistence {
     /// be read, and the screens say so before the user has retyped anything.
     var canSaveConfig: Bool { !configSavesSuspended }
 
+    /// Set by `AppState.seedConfigInMemory` for the length of a demo run: every configuration it
+    /// runs on is the demo's, and none of them may reach `config.json`. See `DemoSeed`.
+    var keepsConfigInMemory = false
+
     // MARK: - Loading
 
     /// Both halves of what a launch reads, in the order they have to be read in.
@@ -217,6 +221,8 @@ final class StatePersistence {
     /// the configuration back: an engine running a rule no file holds is a rule that disappears
     /// at the next launch, and until then the editor is showing it as saved.
     func saveConfig(_ config: Config) -> String? {
+        // A demo run's configuration is not the user's, and is never written over theirs.
+        guard !keepsConfigInMemory else { return nil }
         // The backstop behind the callers' own `canSaveConfig` guard. The degraded line saying
         // so is already on screen from the load, so this one adds none of its own.
         guard !configSavesSuspended else { return "Settings file can't be read" }
