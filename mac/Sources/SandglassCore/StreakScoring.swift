@@ -120,7 +120,7 @@ struct StreakScoring {
         return gregorian.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2], hour: 12))
     }
 
-    private func weekKey(forDayKey key: String) -> String? {
+    func weekKey(forDayKey key: String) -> String? {
         date(forDayKey: key).map(weekKey(for:))
     }
 }

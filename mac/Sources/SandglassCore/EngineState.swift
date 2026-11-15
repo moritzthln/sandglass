@@ -76,6 +76,11 @@ public struct EngineState: Codable, Equatable, Sendable {
     /// is measured from a counter that no longer exists.
     public var uptimeAnchor: TimeInterval?
 
+    /// The reading the engine last believed, so a relaunch on the same boot goes on from it rather
+    /// than trusting whatever the clock says at launch. Absent in every `state.json` written before
+    /// it existed, which a launch reads exactly as it always did. See `EngineClock`.
+    public var clockAnchor: ClockAnchor?
+
     public init(
         version: Int,
         dayKey: String,
@@ -95,7 +100,8 @@ public struct EngineState: Codable, Equatable, Sendable {
         protectionPausedUntilUptime: TimeInterval? = nil,
         emergencyPassEndsAtUptime: TimeInterval? = nil,
         cooldownUntilUptime: [String: TimeInterval] = [:],
-        uptimeAnchor: TimeInterval? = nil
+        uptimeAnchor: TimeInterval? = nil,
+        clockAnchor: ClockAnchor? = nil
     ) {
         self.version = version
         self.dayKey = dayKey
@@ -116,6 +122,7 @@ public struct EngineState: Codable, Equatable, Sendable {
         self.emergencyPassEndsAtUptime = emergencyPassEndsAtUptime
         self.cooldownUntilUptime = cooldownUntilUptime
         self.uptimeAnchor = uptimeAnchor
+        self.clockAnchor = clockAnchor
     }
 
     // MARK: - Writing a deadline
@@ -222,6 +229,7 @@ public struct EngineState: Codable, Equatable, Sendable {
             try container.decodeIfPresent([String: TimeInterval].self, forKey: .cooldownUntilUptime)
             ?? [:]
         uptimeAnchor = try container.decodeIfPresent(TimeInterval.self, forKey: .uptimeAnchor)
+        clockAnchor = try container.decodeIfPresent(ClockAnchor.self, forKey: .clockAnchor)
     }
 
     /// How far into the calendar day a day — and a week — starts when nobody has said

@@ -75,6 +75,12 @@ final class PageBlocker {
     /// it again. See `EarnedOpens`.
     private var earned = EarnedOpens()
 
+    /// The moment the three ledgers above are kept on: uptime, not the wall clock. A wait stamped
+    /// on the wall clock was served the instant somebody set the clock forward, and a settle or a
+    /// clearance stamped on it outlived its seconds by however far the clock was set back. See
+    /// `Clock.steadyNow`. The block page itself is still drawn in wall time, because it is read.
+    private static var steadyNow: Date { SystemClock().steadyNow }
+
     /// The browser the poll last saw sitting on our own block page. Which browser to ask about a
     /// parked tab, at the moment there is none in front to ask. See `LastBlockPage`.
     private var lastBlockPage = LastBlockPage()
@@ -157,7 +163,7 @@ final class PageBlocker {
             // Nothing in front is a browser, or it is showing nothing anybody blocks. The memory
             // of the last open outlives a short gap and not a long one, because the browser
             // coming back after an "Open" *is* a short gap — see `ClearedPage.settleSeconds`.
-            cleared.noPageInFront(now: Date())
+            cleared.noPageInFront(now: Self.steadyNow)
             return
         }
         // macOS goes on naming a hidden application as frontmost for about a second, and "Back to
@@ -242,7 +248,7 @@ final class PageBlocker {
         // which starts no session for the decision to see — would meet the block it just cleared,
         // once a second, until it navigated away.
         guard !cleared.isCleared(url, in: page.bundleID) else { return }
-        if earned.claim(target: url, tab: page.tab, now: Date()) {
+        if earned.claim(target: url, tab: page.tab, now: Self.steadyNow) {
             arrived(at: url, on: page, with: appState)
             return
         }
@@ -250,7 +256,7 @@ final class PageBlocker {
         // Asking twice would put a second countdown over the one already running. A different
         // address on the same page is a different tab, and it is decided on rather than walked
         // past — see `SentToBlockPage`.
-        guard !sentAway.isSettling(tab: page.tab, address: page.address, now: Date())
+        guard !sentAway.isSettling(tab: page.tab, address: page.address, now: Self.steadyNow)
         else { return }
         sendAway(from: url, opening: page.address, on: page, showing: model)
     }
@@ -301,6 +307,7 @@ final class PageBlocker {
         showing model: PauseScreenModel
     ) {
         let now = Date()
+        let steady = Self.steadyNow
         let browser = page.known
         guard browser.canNavigate, let blockPage = BrowserWatcher.blockPage else {
             // **Firefox, as a case of its own.** We read it through the accessibility tree and
@@ -317,7 +324,9 @@ final class PageBlocker {
         // countdown on screen, and the wait the user had served would be gone. The ledger keeps
         // the earlier ripening (see `EarnedOpens.promise`); this is what stops the page from
         // saying something else. A moment already past draws 0:00 and offers the button at once.
-        if let ripening = earned.outstanding(target: url, tab: page.tab, now: now),
+        // The ledger keeps it on the steady line; the page is drawn in wall time.
+        if let held = earned.outstanding(target: url, tab: page.tab, now: steady),
+           case let ripening = now.addingTimeInterval(held.timeIntervalSince(steady)),
            let ends = query.endsAt, ripening < ends {
             query.endsAt = ripening
         }
@@ -330,13 +339,13 @@ final class PageBlocker {
             raiseIfLookedAt(model, from: url, on: page)
             return
         }
-        sentAway.record(tab: page.tab, from: page.address, now: now)
+        sentAway.record(tab: page.tab, from: page.address, now: steady)
         switch model.mode {
         case .countdown(let total):
             // Written down as the page goes up rather than when its countdown runs out, because
             // the button appears the instant the page's own clock reaches zero and the poll is a
             // second wide. See `EarnedOpens`.
-            earned.promise(target: url, tab: page.tab, countdownSeconds: total, now: now)
+            earned.promise(target: url, tab: page.tab, countdownSeconds: total, now: steady)
         case .blocked, .password:
             // A wall grants nothing, and neither does a page waiting for its password. It also
             // **takes back** whatever the wait it replaced was going to grant: a strict window
@@ -397,7 +406,7 @@ final class PageBlocker {
         // And the page is on screen, which is what makes the wait behind it spendable. A claim is
         // spent by *arriving* at the target, and until this line has run a reading of the target is
         // a tab that never left it — see `EarnedOpens.sighted`.
-        earned.sighted(target: query.target, tab: page.tab, now: Date())
+        earned.sighted(target: query.target, tab: page.tab, now: Self.steadyNow)
         let presentation = BlockPresentation.for(
             decision: appState.blockDecision(forURL: query.target),
             info: appState.webDisplayInfo(forURL: query.target)
@@ -422,7 +431,7 @@ final class PageBlocker {
         }
         let shapeChanged = BlockPage.Mode(model.mode) != query.mode
         let waitIsOrphaned = query.mode == .wait
-            && !earned.holds(target: query.target, tab: page.tab, now: Date())
+            && !earned.holds(target: query.target, tab: page.tab, now: Self.steadyNow)
         guard shapeChanged || waitIsOrphaned else { return }
         sendAway(from: query.target, opening: query.opens, on: page, showing: model)
     }

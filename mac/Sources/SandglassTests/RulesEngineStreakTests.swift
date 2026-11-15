@@ -178,13 +178,14 @@ private func testMovingTheStartOfDayNeitherClearsTodayNorScoresIt() {
     let dayBefore = engine.state.dayKey
     expectEqual(engine.state.opensUsed[youtubeGroup], 1, "one open has been spent today")
 
-    // 04:00 is before a 06:00 start, so this moment now belongs to the logical day that began
-    // yesterday morning — a different key, which is the trigger the roll was firing on.
+    // 04:00 is before a 06:00 start, so by the new rule this moment belongs to the logical day
+    // that began yesterday morning. The key does not go back to it: the day already begun runs
+    // on, because a key moved back is a day that rolls over — and is scored — a second time.
     var moved = engine.config
     moved.dayStartMinutes = 6 * 60
     engine.updateConfig(moved)
 
-    expect(engine.state.dayKey != dayBefore, "the moment belongs to a different logical day now")
+    expectEqual(engine.state.dayKey, dayBefore, "the day already begun is kept, not moved back")
     expectEqual(engine.state.opensUsed[youtubeGroup], 1, "and the open already spent is still spent")
     expectEqual(
         engine.state.usageSecondsToday[youtubeGroup], 120, "with the minutes still counted"
@@ -206,6 +207,10 @@ private func testMovingTheStartOfDayStillLetsTheRealDayRollAfterwards() {
     expectEqual(engine.state.opensUsed[youtubeGroup], 1, "the open survives the change")
 
     clock.now = august(10, 6, 1)                       // one minute past the new start of day
+    expectEqual(engine.tick(), [], "the day that began at 03:00 is not ended at 06:00 again")
+    expectEqual(engine.state.opensUsed[youtubeGroup], 1, "so its open is still spent")
+
+    clock.now = august(11, 6, 1)                       // the next new start of day
     expectEqual(engine.tick(), [.dayRolledOver], "the new boundary rolls the day when it arrives")
     expect(engine.state.opensUsed.isEmpty, "and that roll does clear the counters")
     expectEqual(engine.state.streakDays, 1, "and score the day that really ended")

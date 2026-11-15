@@ -10,7 +10,7 @@ import Foundation
 // session and queue the effects that go with it; the next `tick()` drains them. What no question
 // here does is assign a published value, write to disk or tell the blocker anything.
 
-/// Everything the UI shows, derived in one pass. Built by `EngineReadout.project(now:)`.
+/// Everything the UI shows, derived in one pass. Built by `EngineReadout.project()`.
 ///
 /// A value rather than a dozen derivations interleaved with the assignments that publish
 /// them. Separating the two is the point: an assignment of an equal value still wakes every
@@ -63,19 +63,27 @@ public struct AppStateProjection: Equatable {
 @MainActor
 struct EngineReadout {
     private let engine: RulesEngine
-    private let calendar: Calendar
 
-    init(engine: RulesEngine, calendar: Calendar) {
+    init(engine: RulesEngine) {
         self.engine = engine
-        self.calendar = calendar
     }
+
+    /// The engine's calendar, whose zone follows the Mac's — see `RulesEngine.adoptTimeZone`. Read
+    /// from the engine rather than held here, so a flight cannot leave two zones in the app.
+    var calendar: Calendar { engine.calendar }
+
+    /// The engine's guarded reading of this moment. See `AppState.reading`.
+    var reading: ClockReading { engine.reading }
+
+    /// The engine's day. See `AppState.today`.
+    var today: String { engine.today }
 
     // MARK: - The one pass
 
     /// Walks every managed group once and turns what the engine says into what the screens
     /// show. One walk rather than several: `decision(targetID:)` is the expensive question
     /// here, and the block set, the budget rows and the pause refusal all need the same answer.
-    func project(now: Date) -> AppStateProjection {
+    func project() -> AppStateProjection {
         var blocked: Set<String> = []
         var hardBlocked: Set<String> = []
         var rows: [BudgetRow] = []
@@ -110,7 +118,7 @@ struct EngineReadout {
             stats: stats,
             config: engine.config,
             budgets: rows,
-            activeSession: sessionCountdown(now: now),
+            activeSession: sessionCountdown(),
             // "Everything is blocked until 12:25", not "Focus session until 12:25". The feature
             // is called a focus session everywhere inside this app and nowhere the user can see
             // it: the name says what it is for, and the line has to say what it does.
@@ -245,20 +253,24 @@ struct EngineReadout {
     /// Gentle opens carry no end date and never appear here — there is nothing to count down
     /// to. The tie-break on group id is what keeps two sessions ending in the same second
     /// from swapping places between ticks: `Dictionary.values` has no order of its own.
-    func nextRelockingSession(now: Date) -> (groupID: String, endsAt: Date)? {
+    ///
+    /// Measured the way the engine relocks it — `RulesEngine.secondsLeft(in:)`, on the uptime twin
+    /// — rather than as the wall `endsAt` against the raw clock. That comparison hid a session the
+    /// moment the clock was wound past its end, and took "End early" away from one still running.
+    func nextRelockingSession() -> (groupID: String, secondsLeft: TimeInterval)? {
         engine.state.sessions.values
-            .compactMap { session -> (groupID: String, endsAt: Date)? in
-                guard let endsAt = session.endsAt, endsAt > now else { return nil }
-                return (session.groupID, endsAt)
+            .compactMap { session -> (groupID: String, secondsLeft: TimeInterval)? in
+                guard let left = engine.secondsLeft(in: session), left > 0 else { return nil }
+                return (session.groupID, left)
             }
-            .min { ($0.endsAt, $0.groupID) < ($1.endsAt, $1.groupID) }
+            .min { ($0.secondsLeft, $0.groupID) < ($1.secondsLeft, $1.groupID) }
     }
 
     /// Rounded up and clamped to at least one second: a session with 0.4 seconds left is
     /// still running, and "0:00 left" next to a live session reads as a stuck clock.
-    private func sessionCountdown(now: Date) -> SessionRow? {
-        guard let next = nextRelockingSession(now: now) else { return nil }
-        let seconds = Int(next.endsAt.timeIntervalSince(now).rounded(.up))
+    private func sessionCountdown() -> SessionRow? {
+        guard let next = nextRelockingSession() else { return nil }
+        let seconds = Int(next.secondsLeft.rounded(.up))
         return SessionRow(
             groupID: next.groupID,
             name: groupName(next.groupID),
