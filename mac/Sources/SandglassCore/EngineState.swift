@@ -9,19 +9,25 @@ public struct ActiveSession: Codable, Equatable, Sendable {
     /// there is none to go on (an old `state.json`, or a reboot), and the wall date decides.
     public var endsAtUptime: TimeInterval?
     public var warned: Bool
+    /// Whether the group's access password bought this session. Only such a session runs on
+    /// through a strict window the password opens — an ordinary open does not. `nil` on every
+    /// session written before the field existed, which reads as no.
+    public var byPassword: Bool?
 
     public init(
         groupID: String,
         startedAt: Date,
         endsAt: Date?,
         endsAtUptime: TimeInterval? = nil,
-        warned: Bool
+        warned: Bool,
+        byPassword: Bool? = nil
     ) {
         self.groupID = groupID
         self.startedAt = startedAt
         self.endsAt = endsAt
         self.endsAtUptime = endsAtUptime
         self.warned = warned
+        self.byPassword = byPassword
     }
 }
 

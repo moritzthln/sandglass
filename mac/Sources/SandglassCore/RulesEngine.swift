@@ -200,10 +200,9 @@ public final class RulesEngine {
         // makes "free 20:00–22:00" expressible inside an otherwise blocked evening.
         if windows.isInBreakWindow(managed.settings, at: now) { return .notManaged }
         if let window = windows.strictWindow(managed.settings, at: now) {
-            return .blocked(
-                reason: .schedule,
-                untilText: blocked(windows.end(of: window, in: managed.settings))
-            )
+            let until = blocked(windows.end(of: window, in: managed.settings))
+            return windowPasswordGate(managed, untilText: until)   // see `windowPasswordGate(_:)`
+                ?? .blocked(reason: .schedule, untilText: until)
         }
         if let gate = passwordGate(managed) { return gate }   // see `passwordGate(_:)`
         // Ahead of the session on purpose: a limit that let the session it interrupted run on
@@ -319,7 +318,7 @@ public final class RulesEngine {
         let ends = newDeadline(in: TimeInterval(seconds))
         state.sessions[managed.groupID] = ActiveSession(
             groupID: managed.groupID, startedAt: now,
-            endsAt: ends.wall, endsAtUptime: ends.uptime, warned: false
+            endsAt: ends.wall, endsAtUptime: ends.uptime, warned: false, byPassword: true
         )
         return seconds
     }

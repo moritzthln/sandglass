@@ -22,6 +22,10 @@ func runAccessPasswordTests() {
     testEveryPlaceThePasswordIsTypedSharesOneCounter()
     testSettingAPasswordTightensAndRemovingOrChangingItLoosens()
     testChangingTheSettingsPasscodeLoosensTheGroupsThatOpenWithIt()
+    testAWindowPasswordOpensTheStrictWindow()
+    testOutsideItsWindowsAWindowPasswordGroupSpendsItsBudget()
+    testAnOrdinaryOpenDoesNotRunOnIntoTheWindow()
+    testNarrowingThePasswordToTheWindowsLoosens()
 }
 
 private let password = "drive-2026"
@@ -346,5 +350,78 @@ private func testChangingTheSettingsPasscodeLoosensTheGroupsThatOpenWithIt() {
     expect(
         !EditDirection.loosens(group: youtubeGroup, from: plain, to: plainRecoded, onDay: day),
         "a group that does not open with it does not care"
+    )
+}
+
+// MARK: - Only during strict windows
+
+private func windowPasswordSettings() -> GroupSettings {
+    var settings = passwordSettings(standardSettings(windows: [officeHours]), sessionMinutes: 20)
+    settings.passwordOnlyInStrictWindows = true
+    return settings
+}
+
+private let windowPasswordDecision = Decision.blocked(
+    reason: .passwordRequired, untilText: "Blocked until 17:00 · opens with its password"
+)
+
+private func testAWindowPasswordOpensTheStrictWindow() {
+    let clock = FakeClock(august(10, 10))   // Monday, inside office hours
+    let (engine, target) = makeEngine(settings: windowPasswordSettings(), clock: clock)
+    expectEqual(
+        engine.decision(targetID: target.id), windowPasswordDecision,
+        "inside the window the password is the way through, and the screen still says until when"
+    )
+    expectEqual(engine.tryAccessPassword("nope", targetID: target.id), .wrong(attemptsLeft: 4), "a wrong one counts")
+    expectEqual(
+        engine.tryAccessPassword(password, targetID: target.id), .unlocked(sessionSeconds: 1200),
+        "the right one opens the window for the group's open length"
+    )
+    expectEqual(engine.decision(targetID: target.id), .allowed(remainingSessionSeconds: 1200), "and it is open")
+    expectEqual(opensUsed(engine), 0, "nothing was spent from the day")
+    clock.advance(seconds: 1200)
+    expectEqual(engine.decision(targetID: target.id), windowPasswordDecision, "then the window holds it again")
+}
+
+private func testOutsideItsWindowsAWindowPasswordGroupSpendsItsBudget() {
+    let clock = FakeClock(august(10, 18))   // Monday evening, after office hours
+    let (engine, target) = makeEngine(settings: windowPasswordSettings(), clock: clock)
+    guard case .pause = engine.decision(targetID: target.id) else {
+        return expect(false, "outside the window it is the ordinary pause, not the password")
+    }
+    expectEqual(
+        engine.tryAccessPassword(password, targetID: target.id), .refused(engine.decision(targetID: target.id)),
+        "and the password has nothing to open there"
+    )
+    expect(windowPasswordSettings().shutsOutAppWideUnblocks, "the app-wide unblocks still do not reach it")
+}
+
+private func testAnOrdinaryOpenDoesNotRunOnIntoTheWindow() {
+    let clock = FakeClock(august(10, 8, 55))   // five minutes before office hours
+    let (engine, target) = makeEngine(settings: windowPasswordSettings(), clock: clock)
+    guard case .granted = engine.consumeOpen(targetID: target.id) else {
+        return expect(false, "an ordinary open before the window")
+    }
+    clock.now = august(10, 9, 1)
+    expectEqual(
+        engine.decision(targetID: target.id), windowPasswordDecision,
+        "is held by the window when it starts, like it always was"
+    )
+}
+
+private func testNarrowingThePasswordToTheWindowsLoosens() {
+    let before = passwordSettings(standardSettings(windows: [officeHours]))
+    var after = before
+    after.passwordOnlyInStrictWindows = true
+    let config = { (settings: GroupSettings) in
+        Config(version: 1, targets: [], groupSettings: [youtubeGroup: settings])
+    }
+    expect(
+        EditDirection.loosens(group: youtubeGroup, from: config(before), to: config(after), onDay: "2026-08-10"),
+        "only in the windows opens the free hours to the budget"
+    )
+    expect(
+        !EditDirection.loosens(group: youtubeGroup, from: config(after), to: config(before), onDay: "2026-08-10"),
+        "and asking for it all the time again is a tightening"
     )
 }

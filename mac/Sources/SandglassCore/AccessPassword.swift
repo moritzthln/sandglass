@@ -218,12 +218,30 @@ extension RulesEngine {
     /// break window of the group's own still opens it: that is the owner's planned free time, and
     /// drawing a new one is a loosening the password guards.
     func passwordGate(_ managed: GroupLookup.Managed) -> Decision? {
-        guard managed.settings.accessPassword != nil else { return nil }
+        guard managed.settings.accessPassword != nil,
+              !managed.settings.passwordOnlyInStrictWindows else { return nil }
         let budget = GroupBudget(state: state, reading: reading)
         if let remaining = budget.remainingSessionSeconds(managed.groupID) {
             return .allowed(remainingSessionSeconds: remaining)
         }
         return .blocked(reason: .passwordRequired, untilText: "Opens with its password")
+    }
+
+    /// The same rung for a group whose password asks only inside its strict windows, asked by
+    /// `decision(for:)` while one is standing. `nil` leaves the window's own block in force.
+    ///
+    /// **Only a session the password bought runs on through the window.** An ordinary open made
+    /// just before the window began is held by it as it always was — otherwise every window
+    /// would start with a free twenty minutes for whoever opened the group at a minute to.
+    func windowPasswordGate(_ managed: GroupLookup.Managed, untilText: String) -> Decision? {
+        guard managed.settings.accessPassword != nil,
+              managed.settings.passwordOnlyInStrictWindows else { return nil }
+        let budget = GroupBudget(state: state, reading: reading)
+        if state.sessions[managed.groupID]?.byPassword == true,
+           let remaining = budget.remainingSessionSeconds(managed.groupID) {
+            return .allowed(remainingSessionSeconds: remaining)
+        }
+        return .blocked(reason: .passwordRequired, untilText: untilText + " · opens with its password")
     }
 }
 

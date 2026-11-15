@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- "Only during strict windows" for a group's password: the password then opens the group's strict
+  windows for its open length, and outside every window the group spends its budget as usual.
+  Narrowing the password this way is a loosening, so a running lock holds it.
+
 ## [1.1.1] - 2026-11-05
 
 ### Fixed
